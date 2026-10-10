@@ -1,0 +1,94 @@
+{
+  "_comment": "Egg Pterodactyl - EMMANUEL PANEL (panel d'hebergement de bots WhatsApp Baileys). Importe ce fichier via Admin > Nests > Import Egg.",
+  "meta": {
+    "version": "PTDL_v2",
+    "update_url": null
+  },
+  "exported_at": "2024-01-01T00:00:00+00:00",
+  "name": "EMMANUEL PANEL",
+  "author": "PROFESSEUR EMMANUEL X <https://t.me/emmanuelprimex>",
+  "description": "Panel de type Pterodactyl pour heberger des bots WhatsApp Baileys : console temps reel, upload ZIP, gestionnaire de fichiers, stats.",
+  "features": null,
+  "docker_images": {
+    "Node.js 20": "ghcr.io/parkervcp/yolks:nodejs_20",
+    "Node.js 18": "ghcr.io/parkervcp/yolks:nodejs_18",
+    "Node.js 16": "ghcr.io/parkervcp/yolks:nodejs_16"
+  },
+  "file_denylist": [],
+  "startup": "if [[ -d .git ]] && [[ \"{{AUTO_UPDATE}}\" == \"1\" ]]; then git pull; fi; if [[ ! -z {{NODE_PACKAGES}} ]]; then /usr/local/bin/npm install {{NODE_PACKAGES}}; fi; if [[ -f /home/container/package.json ]]; then /usr/local/bin/npm install; fi; /usr/local/bin/node /home/container/{{CMD_RUN}}",
+  "config": {
+    "files": "{}",
+    "startup": "{\r\n    \"done\": \"demarre sur le port\"\r\n}",
+    "logs": "{}",
+    "stop": "^C"
+  },
+  "scripts": {
+    "installation": {
+      "script": "#!/bin/ash\n# Installation EMMANUEL PANEL\napk add --no-cache git\nif [ -f /mnt/server/package.json ]; then\n  cd /mnt/server\n  npm install --no-audit --no-fund\nfi\necho \"Installation terminee.\"\n",
+      "container": "ghcr.io/parkervcp/installers:alpine",
+      "entrypoint": "ash"
+    }
+  },
+  "variables": [
+    {
+      "name": "Fichier de demarrage",
+      "description": "Fichier Node.js a executer.",
+      "env_variable": "CMD_RUN",
+      "default_value": "server.js",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|max:50",
+      "field_type": "text"
+    },
+    {
+      "name": "Packages Node additionnels",
+      "description": "Packages npm a installer en plus.",
+      "env_variable": "NODE_PACKAGES",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Mise a jour auto (git)",
+      "description": "Pull automatiquement le depot git au demarrage.",
+      "env_variable": "AUTO_UPDATE",
+      "default_value": "0",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|boolean",
+      "field_type": "text"
+    },
+    {
+      "name": "Port du panel",
+      "description": "Port d'ecoute du panel (utilise SERVER_PORT de Pterodactyl si vide).",
+      "env_variable": "PANEL_PORT",
+      "default_value": "8080",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|numeric",
+      "field_type": "text"
+    },
+    {
+      "name": "Utilisateur du panel",
+      "description": "Nom d'utilisateur pour se connecter au panel.",
+      "env_variable": "PANEL_USER",
+      "default_value": "admin",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|max:30",
+      "field_type": "text"
+    },
+    {
+      "name": "Mot de passe du panel",
+      "description": "Mot de passe pour se connecter au panel.",
+      "env_variable": "PANEL_PASS",
+      "default_value": "emmanuel2024",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|max:100",
+      "field_type": "text"
+    }
+  ]
+}

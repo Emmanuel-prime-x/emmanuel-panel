@@ -1,0 +1,204 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EMMANUEL PANEL</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
+</head>
+<body>
+
+  <!-- ================= LOGIN ================= -->
+  <div id="loginView" class="login-wrap">
+    <div class="login-card">
+      <div class="login-logo">⚡</div>
+      <h1 id="loginBrand">EMMANUEL PANEL</h1>
+      <div class="sub">Panneau d'hébergement · Bot WhatsApp Baileys</div>
+      <form id="loginForm">
+        <div class="field">
+          <label>Utilisateur</label>
+          <input type="text" id="loginUser" autocomplete="username" placeholder="admin" required />
+        </div>
+        <div class="field">
+          <label>Mot de passe</label>
+          <input type="password" id="loginPass" autocomplete="current-password" placeholder="••••••••" required />
+        </div>
+        <button type="submit" class="btn full" id="loginBtn">Se connecter</button>
+        <div class="err" id="loginErr"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= APP ================= -->
+  <div id="appView" class="app">
+    <div class="topbar">
+      <div class="brand"><span class="dot">⚡</span><span id="topBrand">EMMANUEL PANEL</span></div>
+      <div class="spacer"></div>
+      <div class="owner">Owner : <a id="ownerLink" href="#" target="_blank">PROFESSEUR EMMANUEL X</a></div>
+      <a class="puburl" id="pubUrl" href="#" target="_blank" style="display:none" title="URL publique du panel"></a>
+      <button class="btn ghost sm" id="logoutBtn">Déconnexion</button>
+    </div>
+
+    <div class="container">
+
+      <!-- ---------- LISTE DES SERVEURS ---------- -->
+      <div id="listView">
+        <div class="page-title">
+          <div>
+            <h2>Mes serveurs</h2>
+            <div class="sub">Gère tes instances de bot WhatsApp</div>
+          </div>
+          <button class="btn" id="newServerBtn">+ Nouveau serveur</button>
+        </div>
+        <div class="grid" id="serverGrid"></div>
+      </div>
+
+      <!-- ---------- VUE SERVEUR ---------- -->
+      <div id="serverView" style="display:none">
+        <div class="page-title">
+          <div>
+            <h2 id="svName" style="display:flex;align-items:center;gap:10px">
+              <span class="status-dot offline" id="svDot"></span><span id="svNameText">Serveur</span>
+            </h2>
+            <div class="sub" id="svSub">—</div>
+          </div>
+          <button class="btn ghost sm" id="backBtn">← Retour</button>
+        </div>
+
+        <div class="stats">
+          <div class="stat"><div class="label">Statut</div><div class="value" id="stStatus">offline</div></div>
+          <div class="stat"><div class="label">CPU</div><div class="value" id="stCpu">0<small>%</small></div></div>
+          <div class="stat"><div class="label">RAM</div><div class="value" id="stRam">0<small>Mo</small></div></div>
+          <div class="stat"><div class="label">Uptime</div><div class="value" id="stUptime">0<small>s</small></div></div>
+        </div>
+
+        <div class="toolbar">
+          <button class="btn sm" id="pStart">▶ Démarrer</button>
+          <button class="btn warn sm" id="pRestart">⟳ Redémarrer</button>
+          <button class="btn ghost sm" id="pStop">■ Arrêter</button>
+          <button class="btn danger sm" id="pKill">✕ Kill</button>
+          <div class="spacer"></div>
+          <button class="btn danger sm" id="delServerBtn">🗑 Supprimer le serveur</button>
+        </div>
+
+        <div class="tabs">
+          <button class="tab active" data-tab="console">Console</button>
+          <button class="tab" data-tab="files">Fichiers</button>
+          <button class="tab" data-tab="startup">Démarrage</button>
+        </div>
+
+        <!-- Console -->
+        <div class="tabpane active" id="pane-console">
+          <div class="console" id="console"></div>
+          <form class="console-input" id="cmdForm">
+            <input type="text" id="cmdInput" placeholder="Tape une commande et appuie sur Entrée..." autocomplete="off" />
+            <button class="btn sm" type="submit">Envoyer</button>
+          </form>
+        </div>
+
+        <!-- Fichiers -->
+        <div class="tabpane" id="pane-files">
+          <div class="dropzone" id="dropzone">
+            <div class="big">📦</div>
+            <div>Glisse-dépose le <b>ZIP de ton bot WhatsApp</b> ici, ou <b>clique pour parcourir</b></div>
+            <div style="font-size:12px;margin-top:6px">L'archive sera extraite automatiquement dans le dossier courant.</div>
+            <div class="progress" id="uploadProgress"><div class="bar" id="uploadBar"></div></div>
+          </div>
+          <input type="file" id="fileInput" accept=".zip" style="display:none" />
+
+          <div class="filebar">
+            <span class="crumb" id="crumbRoot">/</span>
+            <span id="crumbPath"></span>
+            <div style="flex:1"></div>
+            <button class="btn ghost sm" id="newFileBtn">+ Fichier</button>
+            <button class="btn ghost sm" id="newDirBtn">+ Dossier</button>
+            <button class="btn ghost sm" id="refreshFilesBtn">⟳</button>
+          </div>
+
+          <table class="files">
+            <thead><tr><th>Nom</th><th>Taille</th><th class="actions">Actions</th></tr></thead>
+            <tbody id="filesBody"></tbody>
+          </table>
+        </div>
+
+        <!-- Démarrage -->
+        <div class="tabpane" id="pane-startup">
+          <div class="field">
+            <label>Fichier de démarrage</label>
+            <input type="text" id="startupFile" placeholder="index.js" />
+          </div>
+          <div class="field">
+            <label>Variables d'environnement (JSON)</label>
+            <textarea id="startupEnv" placeholder='{"NODE_ENV":"production"}'></textarea>
+          </div>
+          <div class="field" style="display:flex;align-items:center;gap:10px">
+            <input type="checkbox" id="autostartChk" style="width:auto;margin:0" checked />
+            <label for="autostartChk" style="margin:0;cursor:pointer">
+              Relancer automatiquement ce bot apr\u00e8s un red\u00e9marrage du panel
+            </label>
+          </div>
+          <div class="toolbar">
+            <button class="btn" id="saveStartupBtn">Enregistrer</button>
+            <button class="btn ghost" id="detectEntryBtn">🔍 Détecter le fichier d'entrée</button>
+            <button class="btn blue" id="installDepsBtn">📦 Installer les dépendances</button>
+          </div>
+          <p style="color:var(--muted);font-size:12.5px;margin-top:10px;line-height:1.6">
+            💡 <b>Astuce</b> : après avoir uploadé ton ZIP, le panel détecte automatiquement
+            le fichier d'entrée (via <code>package.json</code>) et lance <code>npm install</code>.
+            Si ton bot ne démarre pas, vérifie le nom du fichier d'entrée ici, puis relance
+            l'installation des dépendances.
+          </p>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODALS ================= -->
+  <div class="modal-bg" id="newServerModal">
+    <div class="modal">
+      <h3>Nouveau serveur</h3>
+      <div class="field"><label>Nom du serveur</label><input type="text" id="nsName" placeholder="Mon Bot WhatsApp" /></div>
+      <div class="field"><label>Fichier de démarrage</label><input type="text" id="nsFile" placeholder="index.js" value="index.js" /></div>
+      <div class="field"><label>Variables d'environnement (JSON, optionnel)</label><textarea id="nsEnv" placeholder='{"NODE_ENV":"production"}'></textarea></div>
+      <div class="actions">
+        <button class="btn ghost" data-close>Annuler</button>
+        <button class="btn" id="createServerBtn">Créer</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-bg" id="editorModal">
+    <div class="modal">
+      <h3 id="editorTitle">Éditer le fichier</h3>
+      <textarea id="editorContent"></textarea>
+      <div class="actions">
+        <button class="btn ghost" data-close>Annuler</button>
+        <button class="btn" id="saveFileBtn">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // Charge le client socket.io : d'abord en local (serveur Node),
+    // puis en secours depuis le CDN (utile pour l'aperçu statique).
+    (function () {
+      function load(src, onerror) {
+        var s = document.createElement('script');
+        s.src = src;
+        if (onerror) s.onerror = onerror;
+        document.head.appendChild(s);
+      }
+      load('socket.io/socket.io.js', function () {
+        load('https://cdn.socket.io/4.8.1/socket.io.min.js');
+      });
+    })();
+  </script>
+  <script src="js/app.js"></script>
+</body>
+</html>

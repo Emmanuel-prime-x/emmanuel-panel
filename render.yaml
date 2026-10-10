@@ -1,0 +1,26 @@
+# ============================================================================
+#  EMMANUEL PANEL - Blueprint Render (deploiement en 1 clic)
+# ----------------------------------------------------------------------------
+#  Si tu connectes ce depot a Render avec un "Blueprint", Render lit ce fichier
+#  et cree le service automatiquement (plan GRATUIT, sans carte bancaire).
+# ============================================================================
+services:
+  - type: web
+    name: emmanuel-panel
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: frankfurt
+    healthCheckPath: /api/ping
+    autoDeploy: true
+    envVars:
+      - key: PANEL_TUNNEL
+        value: "0"
+      - key: PANEL_USER
+        value: admin
+      # Mot de passe : a saisir dans le tableau de bord Render (secret).
+      - key: PANEL_PASS
+        sync: false
+      # Cle de session generee automatiquement par Render (secret).
+      - key: PANEL_SECRET
+        generateValue: true

@@ -273,9 +273,42 @@ function appendConsole(line) {
   const c = $('#console');
   const div = document.createElement('div');
   div.className = 'line';
-  div.textContent = line;
+  div.innerHTML = ansiToHtml(line);
   c.appendChild(div);
-  c.scrollTop = c.scrollHeight;
+  // Limite le nombre de lignes dans le DOM (console fluide sur mobile).
+  while (c.childElementCount > 1000) c.removeChild(c.firstChild);
+  // Ne force le defilement que si on est deja en bas (permet de relire les logs).
+  const nearBottom = c.scrollHeight - c.scrollTop - c.clientHeight < 80;
+  if (nearBottom) c.scrollTop = c.scrollHeight;
+}
+
+/* Convertit les codes couleur ANSI (\x1b[31m ...) en HTML — evite les "▯[31m" a l'ecran. */
+const ANSI_COLORS = {
+  30: '#6b7686', 31: '#ff6b6b', 32: '#3ddc97', 33: '#ffc857', 34: '#6ea8ff', 35: '#d68cff', 36: '#4fd8e6', 37: '#d5dde8',
+  90: '#7d8898', 91: '#ff8585', 92: '#6df0b4', 93: '#ffd97a', 94: '#8fbaff', 95: '#e3a8ff', 96: '#7fe6f0', 97: '#ffffff'
+};
+function ansiToHtml(text) {
+  let out = '';
+  let open = false;
+  let last = 0;
+  const re = /(?:\u001b|\x1b)\[([0-9;]*)m/g;
+  let m;
+  const esc = (t) => escapeHtml(t.replace(/[\u0000-\u0008\u000b-\u001f]/g, ''));
+  while ((m = re.exec(text))) {
+    out += esc(text.slice(last, m.index));
+    last = re.lastIndex;
+    if (open) { out += '</span>'; open = false; }
+    const codes = m[1].split(';').map(Number);
+    let style = '';
+    for (const c of codes) {
+      if (ANSI_COLORS[c]) style += 'color:' + ANSI_COLORS[c] + ';';
+      else if (c === 1) style += 'font-weight:700;';
+    }
+    if (style) { out += '<span style="' + style + '">'; open = true; }
+  }
+  out += esc(text.slice(last));
+  if (open) out += '</span>';
+  return out;
 }
 
 /* ---------------- Liste des serveurs ---------------- */
@@ -640,8 +673,9 @@ $('#installDepsBtn').addEventListener('click', async () => {
   if (!currentServer) return;
   toast('Installation des dépendances en cours... (voir la console)');
   try {
-    await api(`/api/servers/${currentServer.id}/install`, { method: 'POST' });
-    toast('Dépendances installées ✔');
+    const r = await api(`/api/servers/${currentServer.id}/install`, { method: 'POST' });
+    if (r && r.ok === false) toast('Échec de l\'installation — voir la console', true);
+    else toast('Dépendances installées ✔');
   } catch (err) {
     toast(err.message, true);
   }

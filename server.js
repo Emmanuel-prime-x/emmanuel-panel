@@ -344,8 +344,13 @@ app.post(
           servers.pushLog(id, `\x1b[33m[PANEL] Aucun fichier .js detecte. Verifie ton ZIP.\x1b[0m`);
         }
 
-        // Installation automatique des dependances (npm install)
-        servers.installDependencies(id);
+        // Installation automatique des dependances (npm install), en tache de fond.
+        servers
+          .installDependencies(id)
+          .then((ok) => {
+            if (ok) servers.pushLog(id, `\x1b[36m[PANEL] Pret : clique sur Demarrer.\x1b[0m`);
+          })
+          .catch((e) => servers.pushLog(id, `\x1b[31m[PANEL] Erreur d'installation : ${e.message}\x1b[0m`));
 
         return res.json({ ok: true, extracted: true, entry, server: updated });
       }
@@ -362,8 +367,12 @@ app.post(
 /** Installe manuellement les dependances npm du bot. */
 app.post('/api/servers/:id/install', auth.requireAuth, async (req, res) => {
   if (!store.getServer(req.params.id)) return res.status(404).json({ error: 'Serveur introuvable' });
-  const ok = await servers.installDependencies(req.params.id);
-  res.json({ ok });
+  try {
+    const ok = await servers.installDependencies(req.params.id);
+    res.json({ ok });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 /** Re-detecte le fichier d'entree et met a jour la config de demarrage. */

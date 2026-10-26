@@ -1,13 +1,14 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0d1017" />
   <title>EMMANUEL PANEL</title>
   <link rel="stylesheet" href="css/style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
 </head>
 <body>
 
@@ -16,7 +17,7 @@
     <div class="login-card">
       <div class="login-logo">⚡</div>
       <h1 id="loginBrand">EMMANUEL PANEL</h1>
-      <div class="sub">Panneau d'hébergement · Bot WhatsApp Baileys</div>
+      <div class="sub">Hébergement de bots · WhatsApp &amp; Telegram</div>
       <form id="loginForm">
         <div class="field">
           <label>Utilisateur</label>
@@ -34,127 +35,253 @@
 
   <!-- ================= APP ================= -->
   <div id="appView" class="app">
-    <div class="topbar">
-      <div class="brand"><span class="dot">⚡</span><span id="topBrand">EMMANUEL PANEL</span></div>
-      <div class="spacer"></div>
-      <div class="owner">Owner : <a id="ownerLink" href="#" target="_blank">PROFESSEUR EMMANUEL X</a></div>
-      <a class="puburl" id="pubUrl" href="#" target="_blank" style="display:none" title="URL publique du panel"></a>
-      <button class="btn ghost sm" id="logoutBtn">Déconnexion</button>
-    </div>
 
-    <div class="container">
+    <div class="overlay" id="overlay"></div>
 
-      <!-- ---------- LISTE DES SERVEURS ---------- -->
-      <div id="listView">
-        <div class="page-title">
-          <div>
-            <h2>Mes serveurs</h2>
-            <div class="sub">Gère tes instances de bot WhatsApp</div>
-          </div>
-          <button class="btn" id="newServerBtn">+ Nouveau serveur</button>
+    <!-- Menu latéral -->
+    <aside class="sidebar" id="sidebar">
+      <div class="side-brand"><span class="logo">⚡</span><span id="topBrand">EMMANUEL PANEL</span></div>
+
+      <nav class="side-nav">
+        <div class="side-title">Général</div>
+        <a href="#" class="nav-item active" id="navServers"><i>▦</i><span>Mes serveurs</span></a>
+
+        <div id="serverNav" style="display:none">
+          <div class="side-title" id="serverNavTitle">Serveur</div>
+          <a href="#" class="nav-item" data-tab="console"><i>▸</i><span>Console</span></a>
+          <a href="#" class="nav-item" data-tab="files"><i>🗂</i><span>Fichiers</span></a>
+          <a href="#" class="nav-item" data-tab="startup"><i>⚙</i><span>Démarrage</span></a>
+          <a href="#" class="nav-item" data-tab="schedules"><i>⏱</i><span>Planification</span></a>
+          <a href="#" class="nav-item" data-tab="backups"><i>🛟</i><span>Sauvegardes</span></a>
+          <a href="#" class="nav-item" data-tab="settings"><i>☰</i><span>Paramètres</span></a>
         </div>
-        <div class="grid" id="serverGrid"></div>
+      </nav>
+
+      <div class="side-foot">
+        <a class="puburl" id="pubUrl" href="#" target="_blank" style="display:none" title="URL publique du panel"></a>
+        <div class="owner">Owner · <a id="ownerLink" href="#" target="_blank">PROFESSEUR EMMANUEL X</a></div>
+        <button class="btn ghost sm full" id="logoutBtn">Déconnexion</button>
       </div>
+    </aside>
 
-      <!-- ---------- VUE SERVEUR ---------- -->
-      <div id="serverView" style="display:none">
-        <div class="page-title">
-          <div>
-            <h2 id="svName" style="display:flex;align-items:center;gap:10px">
-              <span class="status-dot offline" id="svDot"></span><span id="svNameText">Serveur</span>
-            </h2>
-            <div class="sub" id="svSub">—</div>
+    <main class="main">
+      <header class="mobilebar">
+        <button class="burger" id="burger" aria-label="Menu">☰</button>
+        <div class="mb-title" id="mobTitle">Mes serveurs</div>
+        <span class="status-pill offline" id="mobPill" style="display:none">offline</span>
+      </header>
+
+      <div class="content">
+
+        <!-- ---------- LISTE DES SERVEURS ---------- -->
+        <div id="listView">
+          <div class="page-head">
+            <div>
+              <h2>Mes serveurs</h2>
+              <div class="sub">Gère tes bots hébergés sur le panel</div>
+            </div>
+            <button class="btn" id="newServerBtn">+ Nouveau serveur</button>
           </div>
-          <button class="btn ghost sm" id="backBtn">← Retour</button>
+          <div class="grid" id="serverGrid"></div>
         </div>
 
-        <div class="stats">
-          <div class="stat"><div class="label">Statut</div><div class="value" id="stStatus">offline</div></div>
-          <div class="stat"><div class="label">CPU</div><div class="value" id="stCpu">0<small>%</small></div></div>
-          <div class="stat"><div class="label">RAM</div><div class="value" id="stRam">0<small>Mo</small></div></div>
-          <div class="stat"><div class="label">Uptime</div><div class="value" id="stUptime">0<small>s</small></div></div>
-        </div>
-
-        <div class="toolbar">
-          <button class="btn sm" id="pStart">▶ Démarrer</button>
-          <button class="btn warn sm" id="pRestart">⟳ Redémarrer</button>
-          <button class="btn ghost sm" id="pStop">■ Arrêter</button>
-          <button class="btn danger sm" id="pKill">✕ Kill</button>
-          <div class="spacer"></div>
-          <button class="btn danger sm" id="delServerBtn">🗑 Supprimer le serveur</button>
-        </div>
-
-        <div class="tabs">
-          <button class="tab active" data-tab="console">Console</button>
-          <button class="tab" data-tab="files">Fichiers</button>
-          <button class="tab" data-tab="startup">Démarrage</button>
-        </div>
-
-        <!-- Console -->
-        <div class="tabpane active" id="pane-console">
-          <div class="console" id="console"></div>
-          <form class="console-input" id="cmdForm">
-            <input type="text" id="cmdInput" placeholder="Tape une commande et appuie sur Entrée..." autocomplete="off" />
-            <button class="btn sm" type="submit">Envoyer</button>
-          </form>
-        </div>
-
-        <!-- Fichiers -->
-        <div class="tabpane" id="pane-files">
-          <div class="dropzone" id="dropzone">
-            <div class="big">📦</div>
-            <div>Glisse-dépose le <b>ZIP de ton bot WhatsApp</b> ici, ou <b>clique pour parcourir</b></div>
-            <div style="font-size:12px;margin-top:6px">L'archive sera extraite automatiquement dans le dossier courant.</div>
-            <div class="progress" id="uploadProgress"><div class="bar" id="uploadBar"></div></div>
-          </div>
-          <input type="file" id="fileInput" accept=".zip" style="display:none" />
-
-          <div class="filebar">
-            <span class="crumb" id="crumbRoot">/</span>
-            <span id="crumbPath"></span>
-            <div style="flex:1"></div>
-            <button class="btn ghost sm" id="newFileBtn">+ Fichier</button>
-            <button class="btn ghost sm" id="newDirBtn">+ Dossier</button>
-            <button class="btn ghost sm" id="refreshFilesBtn">⟳</button>
+        <!-- ---------- VUE SERVEUR ---------- -->
+        <div id="serverView" style="display:none">
+          <div class="page-head">
+            <div class="ph-main">
+              <h2><span class="status-dot offline" id="svDot"></span><span id="svNameText">Serveur</span></h2>
+              <div class="sub" id="svSub">—</div>
+            </div>
+            <div class="power">
+              <button class="btn sm green" id="pStart">▶ Démarrer</button>
+              <button class="btn sm warn" id="pRestart">⟳ Redémarrer</button>
+              <button class="btn sm ghost" id="pStop">■ Arrêter</button>
+              <button class="btn sm danger" id="pKill">✕ Kill</button>
+            </div>
           </div>
 
-          <table class="files">
-            <thead><tr><th>Nom</th><th>Taille</th><th class="actions">Actions</th></tr></thead>
-            <tbody id="filesBody"></tbody>
-          </table>
-        </div>
+          <!-- Onglets (mobile) -->
+          <div class="tabstrip" id="tabstrip">
+            <button class="tab active" data-tab="console">Console</button>
+            <button class="tab" data-tab="files">Fichiers</button>
+            <button class="tab" data-tab="startup">Démarrage</button>
+            <button class="tab" data-tab="schedules">Planification</button>
+            <button class="tab" data-tab="backups">Sauvegardes</button>
+            <button class="tab" data-tab="settings">Paramètres</button>
+          </div>
 
-        <!-- Démarrage -->
-        <div class="tabpane" id="pane-startup">
-          <div class="field">
-            <label>Fichier de démarrage</label>
-            <input type="text" id="startupFile" placeholder="index.js" />
+          <!-- Console -->
+          <div class="tabpane active" id="pane-console">
+            <div class="stats">
+              <div class="stat"><div class="label">Statut</div><div class="value"><span class="status-pill offline" id="stStatus">offline</span></div></div>
+              <div class="stat"><div class="label">CPU</div><div class="value" id="stCpu">0<small>%</small></div></div>
+              <div class="stat"><div class="label">Mémoire</div><div class="value" id="stRam">0<small>Mo</small></div></div>
+              <div class="stat"><div class="label">Disque</div><div class="value" id="stDisk">0<small>Mo</small></div></div>
+              <div class="stat"><div class="label">Uptime</div><div class="value" id="stUptime">0s</div></div>
+            </div>
+            <div class="charts">
+              <div class="chart"><div class="label">CPU</div><canvas id="chCpu" height="70"></canvas></div>
+              <div class="chart"><div class="label">Mémoire</div><canvas id="chRam" height="70"></canvas></div>
+            </div>
+            <div class="terminal">
+              <div class="term-head">
+                <span class="dots"><i></i><i></i><i></i></span>
+                <span>Console</span>
+                <div style="flex:1"></div>
+                <button class="icon-btn" id="clearConsole" title="Vider l'affichage">Vider</button>
+              </div>
+              <div class="console" id="console"></div>
+              <form class="console-input" id="cmdForm">
+                <span class="prompt">$</span>
+                <input type="text" id="cmdInput" placeholder="Tape une commande et appuie sur Entrée..." autocomplete="off" autocapitalize="off" />
+                <button class="btn sm" type="submit">Envoyer</button>
+              </form>
+            </div>
           </div>
-          <div class="field">
-            <label>Variables d'environnement (JSON)</label>
-            <textarea id="startupEnv" placeholder='{"NODE_ENV":"production"}'></textarea>
-          </div>
-          <div class="field" style="display:flex;align-items:center;gap:10px">
-            <input type="checkbox" id="autostartChk" style="width:auto;margin:0" checked />
-            <label for="autostartChk" style="margin:0;cursor:pointer">
-              Relancer automatiquement ce bot apr\u00e8s un red\u00e9marrage du panel
-            </label>
-          </div>
-          <div class="toolbar">
-            <button class="btn" id="saveStartupBtn">Enregistrer</button>
-            <button class="btn ghost" id="detectEntryBtn">🔍 Détecter le fichier d'entrée</button>
-            <button class="btn blue" id="installDepsBtn">📦 Installer les dépendances</button>
-          </div>
-          <p style="color:var(--muted);font-size:12.5px;margin-top:10px;line-height:1.6">
-            💡 <b>Astuce</b> : après avoir uploadé ton ZIP, le panel détecte automatiquement
-            le fichier d'entrée (via <code>package.json</code>) et lance <code>npm install</code>.
-            Si ton bot ne démarre pas, vérifie le nom du fichier d'entrée ici, puis relance
-            l'installation des dépendances.
-          </p>
-        </div>
 
+          <!-- Fichiers -->
+          <div class="tabpane" id="pane-files">
+            <div class="card-box">
+              <div class="filebar">
+                <div class="crumbs"><span class="crumb" id="crumbRoot">🏠 home</span><span id="crumbPath"></span></div>
+                <div class="fb-actions">
+                  <button class="btn ghost sm" id="newFileBtn">+ Fichier</button>
+                  <button class="btn ghost sm" id="newDirBtn">+ Dossier</button>
+                  <button class="btn ghost sm" id="refreshFilesBtn" title="Actualiser">⟳</button>
+                  <button class="btn sm" id="uploadBtn">⬆ Envoyer</button>
+                </div>
+              </div>
+
+              <div class="selbar" id="selBar" style="display:none">
+                <span id="selCount">0 sélectionné(s)</span>
+                <div style="flex:1"></div>
+                <button class="btn ghost sm" id="selArchive">Compresser</button>
+                <button class="btn ghost sm" id="selMove">Déplacer</button>
+                <button class="btn danger sm" id="selDelete">Supprimer</button>
+              </div>
+
+              <div class="dropzone" id="dropzone">
+                <div class="big">⬆</div>
+                <div>Glisse tes fichiers ici ou <b>clique pour parcourir</b></div>
+                <div class="hint">Les archives .zip ne sont pas extraites automatiquement : utilise « Décompresser » dans le menu du fichier.</div>
+                <div class="progress" id="uploadProgress"><div class="bar" id="uploadBar"></div></div>
+              </div>
+              <input type="file" id="fileInput" multiple style="display:none" />
+
+              <div class="table-wrap">
+                <table class="files">
+                  <thead><tr>
+                    <th class="chk"><input type="checkbox" id="selAll" /></th>
+                    <th>Nom</th><th class="col-size">Taille</th><th class="col-date">Modifié</th><th class="actions"></th>
+                  </tr></thead>
+                  <tbody id="filesBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Démarrage -->
+          <div class="tabpane" id="pane-startup">
+            <div class="card-box pad">
+              <h3>Configuration de démarrage</h3>
+              <div class="row2">
+                <div class="field">
+                  <label>Fichier de démarrage</label>
+                  <input type="text" id="startupFile" placeholder="index.js" />
+                </div>
+                <div class="field">
+                  <label>Options Node (optionnel)</label>
+                  <input type="text" id="startupArgs" placeholder="--max-old-space-size=256" />
+                </div>
+              </div>
+
+              <div class="field">
+                <label>Variables d'environnement</label>
+                <div id="envRows" class="env-rows"></div>
+                <button class="btn ghost sm" id="addEnvBtn" type="button">+ Ajouter une variable</button>
+              </div>
+
+              <label class="switch"><input type="checkbox" id="autostartChk" checked /><span></span>
+                Relancer ce bot après un redémarrage du panel</label>
+              <label class="switch"><input type="checkbox" id="autorestartChk" checked /><span></span>
+                Relancer automatiquement si le bot plante</label>
+
+              <div class="toolbar">
+                <button class="btn" id="saveStartupBtn">Enregistrer</button>
+                <button class="btn ghost" id="detectEntryBtn">🔍 Détecter le fichier d'entrée</button>
+              </div>
+            </div>
+
+            <div class="card-box pad">
+              <h3>Dépendances (npm)</h3>
+              <p class="muted">Les dépendances de <code>package.json</code> s'installent automatiquement au démarrage. Tu peux aussi les lancer à la main ou ajouter un paquet.</p>
+              <div class="toolbar">
+                <button class="btn blue" id="installDepsBtn">📦 npm install</button>
+              </div>
+              <form class="inline-form" id="pkgForm">
+                <input type="text" id="pkgInput" placeholder="ex : axios  ou  github:WhiskeySockets/Baileys" />
+                <button class="btn ghost" type="submit">Installer le paquet</button>
+              </form>
+            </div>
+          </div>
+
+          <!-- Planification -->
+          <div class="tabpane" id="pane-schedules">
+            <div class="card-box pad">
+              <div class="sec-head">
+                <h3>Tâches planifiées</h3>
+                <button class="btn sm" id="newSchedBtn">+ Nouvelle tâche</button>
+              </div>
+              <p class="muted">Redémarre ton bot toutes les X minutes, ou chaque jour à une heure précise (heure du serveur, UTC).</p>
+              <div id="schedList" class="list"></div>
+            </div>
+          </div>
+
+          <!-- Sauvegardes -->
+          <div class="tabpane" id="pane-backups">
+            <div class="card-box pad">
+              <div class="sec-head">
+                <h3>Sauvegardes</h3>
+                <button class="btn sm" id="newBackupBtn">+ Créer une sauvegarde</button>
+              </div>
+              <p class="muted">Archive complète des fichiers du bot (sans <code>node_modules</code>). 10 sauvegardes maximum.</p>
+              <div id="backupList" class="list"></div>
+            </div>
+          </div>
+
+          <!-- Paramètres -->
+          <div class="tabpane" id="pane-settings">
+            <div class="card-box pad">
+              <h3>Informations</h3>
+              <div class="field"><label>Nom du serveur</label>
+                <div class="inline-form"><input type="text" id="setName" /><button class="btn" id="saveNameBtn">Renommer</button></div>
+              </div>
+              <div class="kv"><span>ID du serveur</span><code id="setId">—</code></div>
+              <div class="kv"><span>Dossier</span><code id="setDir">—</code></div>
+            </div>
+            <div class="card-box pad">
+              <h3>Mot de passe du panel</h3>
+              <form class="inline-form" id="pwdForm">
+                <input type="password" id="newPwd" placeholder="Nouveau mot de passe (4 caractères min.)" autocomplete="new-password" />
+                <button class="btn ghost" type="submit">Changer</button>
+              </form>
+            </div>
+            <div class="card-box pad danger-zone">
+              <h3>Zone dangereuse</h3>
+              <div class="dz-row">
+                <div><b>Réinitialiser le serveur</b><div class="muted">Supprime tous les fichiers du bot.</div></div>
+                <button class="btn danger sm" id="reinstallBtn">Réinitialiser</button>
+              </div>
+              <div class="dz-row">
+                <div><b>Supprimer le serveur</b><div class="muted">Suppression définitive (fichiers et sauvegardes).</div></div>
+                <button class="btn danger sm" id="delServerBtn">🗑 Supprimer</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
       </div>
-    </div>
+    </main>
   </div>
 
   <!-- ================= MODALS ================= -->
@@ -163,7 +290,6 @@
       <h3>Nouveau serveur</h3>
       <div class="field"><label>Nom du serveur</label><input type="text" id="nsName" placeholder="Mon Bot WhatsApp" /></div>
       <div class="field"><label>Fichier de démarrage</label><input type="text" id="nsFile" placeholder="index.js" value="index.js" /></div>
-      <div class="field"><label>Variables d'environnement (JSON, optionnel)</label><textarea id="nsEnv" placeholder='{"NODE_ENV":"production"}'></textarea></div>
       <div class="actions">
         <button class="btn ghost" data-close>Annuler</button>
         <button class="btn" id="createServerBtn">Créer</button>
@@ -172,12 +298,49 @@
   </div>
 
   <div class="modal-bg" id="editorModal">
-    <div class="modal">
+    <div class="modal wide">
       <h3 id="editorTitle">Éditer le fichier</h3>
-      <textarea id="editorContent"></textarea>
+      <textarea id="editorContent" spellcheck="false" wrap="off"></textarea>
+      <div class="actions">
+        <span class="muted" style="margin-right:auto">Ctrl+S pour enregistrer</span>
+        <button class="btn ghost" data-close>Fermer</button>
+        <button class="btn" id="saveFileBtn">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-bg" id="schedModal">
+    <div class="modal">
+      <h3>Tâche planifiée</h3>
+      <div class="field"><label>Nom</label><input type="text" id="schName" placeholder="Redémarrage nocturne" /></div>
+      <div class="row2">
+        <div class="field"><label>Action</label>
+          <select id="schAction">
+            <option value="restart">Redémarrer</option>
+            <option value="start">Démarrer</option>
+            <option value="stop">Arrêter</option>
+            <option value="command">Envoyer une commande</option>
+          </select></div>
+        <div class="field"><label>Fréquence</label>
+          <select id="schType"><option value="interval">Toutes les X minutes</option><option value="daily">Chaque jour à</option></select></div>
+      </div>
+      <div class="field" id="schEveryBox"><label>Intervalle (minutes)</label><input type="number" id="schEvery" min="1" value="360" /></div>
+      <div class="field" id="schAtBox" style="display:none"><label>Heure (UTC)</label><input type="time" id="schAt" value="04:00" /></div>
+      <div class="field" id="schPayloadBox" style="display:none"><label>Commande</label><input type="text" id="schPayload" placeholder="ex : save" /></div>
       <div class="actions">
         <button class="btn ghost" data-close>Annuler</button>
-        <button class="btn" id="saveFileBtn">Enregistrer</button>
+        <button class="btn" id="saveSchedBtn">Créer</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-bg" id="promptModal">
+    <div class="modal small">
+      <h3 id="promptTitle">Nom</h3>
+      <div class="field"><input type="text" id="promptInput" autocomplete="off" /></div>
+      <div class="actions">
+        <button class="btn ghost" data-close>Annuler</button>
+        <button class="btn" id="promptOk">OK</button>
       </div>
     </div>
   </div>
@@ -186,7 +349,7 @@
 
   <script>
     // Charge le client socket.io : d'abord en local (serveur Node),
-    // puis en secours depuis le CDN (utile pour l'aperçu statique).
+    // puis en secours depuis le CDN.
     (function () {
       function load(src, onerror) {
         var s = document.createElement('script');

@@ -26,6 +26,8 @@ const files = require('./lib/files');
 const tunnel = require('./lib/tunnel');
 const FileSessionStore = require('./lib/session-store');
 const keepalive = require('./lib/keepalive');
+const backups = require('./lib/backups');
+const scheduler = require('./lib/scheduler');
 
 /* ---------------- Robustesse : ne jamais mourir sur une erreur isolee ---------------- */
 process.on('uncaughtException', (err) => {
@@ -201,6 +203,9 @@ app.get('/api/servers/:id', auth.requireAuth, (req, res) => {
 
 app.delete('/api/servers/:id', auth.requireAuth, (req, res) => {
   servers.deleteServer(req.params.id);
+  try {
+    backups.removeAll(req.params.id);
+  } catch (e) {}
   res.json({ ok: true });
 });
 
@@ -242,7 +247,7 @@ app.post('/api/servers/:id/command', auth.requireAuth, (req, res) => {
 });
 
 app.put('/api/servers/:id/startup', auth.requireAuth, (req, res) => {
-  const { startupFile, env, autostart } = req.body || {};
+  const { startupFile, env, autostart, autorestart, args } = req.body || {};
   let parsedEnv;
   if (env) {
     try {
@@ -254,7 +259,9 @@ app.put('/api/servers/:id/startup', auth.requireAuth, (req, res) => {
   const updated = store.updateServer(req.params.id, {
     ...(startupFile ? { startupFile } : {}),
     ...(parsedEnv ? { env: parsedEnv } : {}),
-    ...(typeof autostart === 'boolean' ? { autostart } : {})
+    ...(typeof autostart === 'boolean' ? { autostart } : {}),
+    ...(typeof autorestart === 'boolean' ? { autorestart } : {}),
+    ...(typeof args === 'string' ? { args: args.slice(0, 200) } : {})
   });
   res.json(updated);
 });
@@ -312,63 +319,211 @@ app.delete('/api/servers/:id/files', auth.requireAuth, (req, res) => {
   }
 });
 
-/** Upload d'un ZIP puis extraction automatique dans le dossier du serveur. */
+/**
+ * Upload d'un ou plusieurs fichiers dans le dossier courant.
+ * Les archives .zip ne sont PAS extraites automatiquement : l'extraction se
+ * fait a la demande (bouton « Décompresser » du gestionnaire de fichiers).
+ */
 app.post(
   '/api/servers/:id/files/upload',
   auth.requireAuth,
-  upload.single('file'),
+  upload.array('file', 50),
   (req, res) => {
-    if (!req.file) return res.status(400).json({ error: 'Aucun fichier' });
+    const list = req.files || [];
+    if (!list.length) return res.status(400).json({ error: 'Aucun fichier' });
     const id = req.params.id;
+    if (!store.getServer(id)) {
+      list.forEach((f) => fs.rmSync(f.path, { force: true }));
+      return res.status(404).json({ error: 'Serveur introuvable' });
+    }
     const destRel = req.body.path || '';
     try {
-      if (req.file.originalname.toLowerCase().endsWith('.zip')) {
-        // Supprime d'abord le fichier de demarrage par defaut du panel
-        // (sinon il fausse la detection du dossier racine unique du ZIP).
-        const removedStarter = files.removeStarter(id);
-
-        files.extractZip(id, req.file.path, destRel);
-        fs.unlinkSync(req.file.path);
-
-        if (removedStarter.length) {
-          servers.pushLog(id, `\x1b[36m[PANEL] Fichier temporaire supprime : ${removedStarter.join(', ')}\x1b[0m`);
-        }
-
-        // Detection automatique du fichier d'entree
-        const entry = files.detectEntryPoint(id, destRel);
-        let updated = null;
-        if (entry) {
-          updated = store.updateServer(id, { startupFile: entry });
-          servers.pushLog(id, `\x1b[36m[PANEL] Fichier d'entree detecte : ${entry}\x1b[0m`);
-        } else {
-          servers.pushLog(id, `\x1b[33m[PANEL] Aucun fichier .js detecte. Verifie ton ZIP.\x1b[0m`);
-        }
-
-        // Installation automatique des dependances (npm install), en tache de fond.
-        servers
-          .installDependencies(id)
-          .then((ok) => {
-            if (ok) servers.pushLog(id, `\x1b[36m[PANEL] Pret : clique sur Demarrer.\x1b[0m`);
-          })
-          .catch((e) => servers.pushLog(id, `\x1b[31m[PANEL] Erreur d'installation : ${e.message}\x1b[0m`));
-
-        return res.json({ ok: true, extracted: true, entry, server: updated });
+      const names = [];
+      for (const f of list) {
+        const clean = path.basename(f.originalname).replace(/[\u0000-\u001f]/g, '');
+        const dest = files.safeResolve(id, path.posix.join(destRel, clean));
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.copyFileSync(f.path, dest);
+        fs.rmSync(f.path, { force: true });
+        names.push(clean);
       }
-      // Fichier simple : on le deplace tel quel
-      const dest = files.safeResolve(id, path.posix.join(destRel, req.file.originalname));
-      fs.renameSync(req.file.path, dest);
-      res.json({ ok: true, extracted: false });
+      files.removeStarter(id);
+      servers.pushLog(id, `\x1b[36m[PANEL] Fichier(s) envoye(s) : ${names.join(', ')}\x1b[0m`);
+      res.json({ ok: true, names });
     } catch (e) {
+      list.forEach((f) => fs.rmSync(f.path, { force: true }));
       res.status(500).json({ error: e.message });
     }
   }
 );
 
+/** Telecharge un fichier du serveur. */
+app.get('/api/servers/:id/files/download', auth.requireAuth, (req, res) => {
+  try {
+    const abs = files.safeResolve(req.params.id, req.query.path || '');
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) return res.status(404).json({ error: 'Fichier introuvable' });
+    res.download(abs);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/** Decompresse manuellement une archive .zip. */
+app.post('/api/servers/:id/files/unarchive', auth.requireAuth, (req, res) => {
+  const id = req.params.id;
+  try {
+    const { path: zipRel, dest } = req.body || {};
+    const removed = files.removeStarter(id);
+    const destRel = dest !== undefined ? dest : path.posix.dirname(zipRel || '.') === '.' ? '' : path.posix.dirname(zipRel);
+    const count = files.extractZip(id, zipRel, destRel);
+    servers.pushLog(id, `\x1b[36m[PANEL] Archive decompressee : ${path.posix.basename(zipRel)} (${count} fichiers)\x1b[0m`);
+    if (removed.length) servers.pushLog(id, `\x1b[36m[PANEL] Fichier temporaire supprime : ${removed.join(', ')}\x1b[0m`);
+    const entry = files.detectEntryPoint(id, '');
+    let server = null;
+    if (entry) {
+      server = store.updateServer(id, { startupFile: entry });
+      servers.pushLog(id, `\x1b[36m[PANEL] Fichier d'entree detecte : ${entry}\x1b[0m`);
+    }
+    res.json({ ok: true, count, entry, server });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/** Compresse des fichiers/dossiers en .zip. */
+app.post('/api/servers/:id/files/archive', auth.requireAuth, (req, res) => {
+  try {
+    const { paths, dir, name } = req.body || {};
+    if (!Array.isArray(paths) || !paths.length) return res.status(400).json({ error: 'Rien a compresser' });
+    res.json({ ok: true, file: files.archive(req.params.id, paths, dir || '', name) });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/servers/:id/files/move', auth.requireAuth, (req, res) => {
+  try {
+    files.move(req.params.id, req.body.paths || [], req.body.dest || '');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/servers/:id/files/copy', auth.requireAuth, (req, res) => {
+  try {
+    res.json({ ok: true, name: files.copy(req.params.id, req.body.path) });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/** Suppression groupee. */
+app.post('/api/servers/:id/files/delete', auth.requireAuth, (req, res) => {
+  try {
+    (req.body.paths || []).forEach((p) => files.remove(req.params.id, p));
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/* ---------------- Parametres / reinstallation ---------------- */
+app.put('/api/servers/:id/settings', auth.requireAuth, (req, res) => {
+  const name = String((req.body || {}).name || '').trim().slice(0, 60);
+  if (!name) return res.status(400).json({ error: 'Nom requis' });
+  const s = store.updateServer(req.params.id, { name });
+  if (!s) return res.status(404).json({ error: 'Serveur introuvable' });
+  res.json(s);
+});
+
+/** Vide tous les fichiers du serveur (fichier de demarrage par defaut recree). */
+app.post('/api/servers/:id/reinstall', auth.requireAuth, (req, res) => {
+  const id = req.params.id;
+  const s = store.getServer(id);
+  if (!s) return res.status(404).json({ error: 'Serveur introuvable' });
+  servers.stop(id, true);
+  const dir = servers.serverDir(id);
+  try {
+    for (const e of fs.readdirSync(dir)) fs.rmSync(path.join(dir, e), { recursive: true, force: true });
+    servers.writeStarter(id);
+    servers.pushLog(id, `\x1b[33m[PANEL] Serveur reinitialise : tous les fichiers ont ete supprimes.\x1b[0m`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/* ---------------- Planification ---------------- */
+app.get('/api/servers/:id/schedules', auth.requireAuth, (req, res) => res.json(scheduler.list(req.params.id)));
+app.post('/api/servers/:id/schedules', auth.requireAuth, (req, res) => {
+  try {
+    res.json(scheduler.add(req.params.id, req.body || {}));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+app.put('/api/servers/:id/schedules/:sid', auth.requireAuth, (req, res) => {
+  try {
+    scheduler.update(req.params.id, req.params.sid, req.body || {});
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+app.post('/api/servers/:id/schedules/:sid/run', auth.requireAuth, (req, res) => {
+  try {
+    scheduler.runNow(req.params.id, req.params.sid);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+app.delete('/api/servers/:id/schedules/:sid', auth.requireAuth, (req, res) => {
+  scheduler.remove(req.params.id, req.params.sid);
+  res.json({ ok: true });
+});
+
+/* ---------------- Sauvegardes ---------------- */
+app.get('/api/servers/:id/backups', auth.requireAuth, (req, res) => res.json(backups.list(req.params.id)));
+app.post('/api/servers/:id/backups', auth.requireAuth, (req, res) => {
+  try {
+    res.json(backups.create(req.params.id, (req.body || {}).label));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+app.get('/api/servers/:id/backups/:name/download', auth.requireAuth, (req, res) => {
+  try {
+    res.download(backups.filePath(req.params.id, req.params.name));
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+app.post('/api/servers/:id/backups/:name/restore', auth.requireAuth, (req, res) => {
+  try {
+    backups.restore(req.params.id, req.params.name);
+    servers.pushLog(req.params.id, `\x1b[33m[PANEL] Sauvegarde restauree : ${req.params.name}\x1b[0m`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+app.delete('/api/servers/:id/backups/:name', auth.requireAuth, (req, res) => {
+  try {
+    backups.remove(req.params.id, req.params.name);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
 /** Installe manuellement les dependances npm du bot. */
 app.post('/api/servers/:id/install', auth.requireAuth, async (req, res) => {
   if (!store.getServer(req.params.id)) return res.status(404).json({ error: 'Serveur introuvable' });
   try {
-    const ok = await servers.installDependencies(req.params.id);
+    const pk = (req.body || {}).packages;
+    const ok = pk ? await servers.installPackages(req.params.id, pk) : await servers.installDependencies(req.params.id);
     res.json({ ok });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -480,6 +635,7 @@ listenWithRetry(1);
 /* ---------------- Anti-veille 24/7 (self-ping) ---------------- */
 // Empeche les hebergeurs gratuits (Render, etc.) d'endormir le service.
 keepalive.startKeepAlive();
+scheduler.startScheduler();
 
 /* ---------------- Arret propre ---------------- */
 function shutdown(sig) {

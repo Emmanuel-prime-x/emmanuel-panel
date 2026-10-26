@@ -227,7 +227,7 @@ pm2 startup
 
 | Symptôme | Cause / Solution |
 |---|---|
-| Le bot affiche « Aucun bot installé » | C'est le fichier temporaire du panel : **uploade ton ZIP** (onglet Fichiers). Il est supprimé automatiquement à l'upload. |
+| Le bot affiche « Aucun bot installé » | C'est le fichier temporaire du panel : **uploade ton ZIP** (onglet Fichiers) puis clique sur **⋮ → Décompresser**. Le fichier temporaire est supprimé à ce moment-là. |
 | `Cannot find module 'baileys'` | Dépendances non installées → onglet *Démarrage* → **📦 Installer les dépendances**. |
 | Le bot démarre mais ne fait rien | Mauvais fichier d'entrée → onglet *Démarrage* → **🔍 Détecter le fichier d'entrée**, puis *Enregistrer*. |
 | `Fichier de démarrage introuvable` | Le nom dans l'onglet *Démarrage* ne correspond pas → corrige-le ou relance la détection. |
@@ -275,3 +275,13 @@ panel/
 
 Projet fourni tel quel pour héberger **tes propres** bots. Utilise-le de manière
 responsable et conforme aux conditions d'utilisation de WhatsApp et Telegram.
+
+
+## Nouveautés (interface type hébergeur)
+
+- Menu latéral, cartes de statistiques (CPU, mémoire, disque, uptime) et graphiques en direct.
+- Gestionnaire de fichiers : envoi multiple, **décompression manuelle des .zip**, compression, déplacer, dupliquer, renommer, télécharger, éditer, sélection multiple.
+- Démarrage : variables d'environnement une par une, options Node, relance auto après crash, installation d'un paquet npm précis.
+- Planification : redémarrage toutes les X minutes ou chaque jour à une heure (UTC).
+- Sauvegardes : création, téléchargement, restauration (10 max, `node_modules` exclu).
+- Paramètres : renommer, changer le mot de passe, réinitialiser ou supprimer le serveur.

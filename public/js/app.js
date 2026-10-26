@@ -250,6 +250,21 @@ async function checkAlive() {
   }
 }
 
+/* ---------------- URL publique ---------------- */
+async function refreshPubUrl() {
+  try {
+    const me = await api('/api/me');
+    const a = $('#pubUrl');
+    if (me && me.publicUrl) {
+      a.href = me.publicUrl;
+      a.textContent = me.publicUrl.replace(/^https?:\/\//, '');
+      a.style.display = '';
+    } else {
+      a.style.display = 'none';
+    }
+  } catch (e) {}
+}
+
 /* ---------------- Socket.IO ---------------- */
 function initSocket() {
   if (socket) return;
@@ -269,20 +284,7 @@ function initSocket() {
   });
 }
 
-function appendConsole(line) {
-  const c = $('#console');
-  const div = document.createElement('div');
-  div.className = 'line';
-  div.innerHTML = ansiToHtml(line);
-  c.appendChild(div);
-  // Limite le nombre de lignes dans le DOM (console fluide sur mobile).
-  while (c.childElementCount > 1000) c.removeChild(c.firstChild);
-  // Ne force le defilement que si on est deja en bas (permet de relire les logs).
-  const nearBottom = c.scrollHeight - c.scrollTop - c.clientHeight < 80;
-  if (nearBottom) c.scrollTop = c.scrollHeight;
-}
-
-/* Convertit les codes couleur ANSI (\x1b[31m ...) en HTML — evite les "▯[31m" a l'ecran. */
+/* ---------------- Console (couleurs ANSI) ---------------- */
 const ANSI_COLORS = {
   30: '#6b7686', 31: '#ff6b6b', 32: '#3ddc97', 33: '#ffc857', 34: '#6ea8ff', 35: '#d68cff', 36: '#4fd8e6', 37: '#d5dde8',
   90: '#7d8898', 91: '#ff8585', 92: '#6df0b4', 93: '#ffd97a', 94: '#8fbaff', 95: '#e3a8ff', 96: '#7fe6f0', 97: '#ffffff'
@@ -291,16 +293,15 @@ function ansiToHtml(text) {
   let out = '';
   let open = false;
   let last = 0;
-  const re = /(?:\u001b|\x1b)\[([0-9;]*)m/g;
+  const re = /\u001b\[([0-9;]*)m/g;
   let m;
   const esc = (t) => escapeHtml(t.replace(/[\u0000-\u0008\u000b-\u001f]/g, ''));
   while ((m = re.exec(text))) {
     out += esc(text.slice(last, m.index));
     last = re.lastIndex;
     if (open) { out += '</span>'; open = false; }
-    const codes = m[1].split(';').map(Number);
     let style = '';
-    for (const c of codes) {
+    for (const c of m[1].split(';').map(Number)) {
       if (ANSI_COLORS[c]) style += 'color:' + ANSI_COLORS[c] + ';';
       else if (c === 1) style += 'font-weight:700;';
     }
@@ -311,24 +312,86 @@ function ansiToHtml(text) {
   return out;
 }
 
+function appendConsole(line) {
+  const c = $('#console');
+  const nearBottom = c.scrollHeight - c.scrollTop - c.clientHeight < 80;
+  const div = document.createElement('div');
+  div.className = 'line';
+  div.innerHTML = ansiToHtml(line);
+  c.appendChild(div);
+  while (c.childElementCount > 1000) c.removeChild(c.firstChild);
+  if (nearBottom) c.scrollTop = c.scrollHeight;
+}
+$('#clearConsole').addEventListener('click', () => { $('#console').innerHTML = ''; });
+
+$('#cmdForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const input = $('#cmdInput');
+  const cmd = input.value.trim();
+  if (!cmd || !currentServer) return;
+  if (socket) socket.emit('command', { id: currentServer.id, command: cmd });
+  else api(`/api/servers/${currentServer.id}/command`, { method: 'POST', body: JSON.stringify({ command: cmd }) }).catch(() => {});
+  input.value = '';
+});
+
+/* ---------------- Navigation / menu ---------------- */
+function openSidebar(v) {
+  $('#sidebar').classList.toggle('open', v);
+  $('#overlay').classList.toggle('open', v);
+}
+$('#burger').addEventListener('click', () => openSidebar(!$('#sidebar').classList.contains('open')));
+$('#overlay').addEventListener('click', () => openSidebar(false));
+
+function showList() {
+  if (currentServer && socket) socket.emit('leave', { id: currentServer.id });
+  stopStats();
+  currentServer = null;
+  $('#serverView').style.display = 'none';
+  $('#listView').style.display = 'block';
+  $('#serverNav').style.display = 'none';
+  $('#navServers').classList.add('active');
+  $('#mobTitle').textContent = 'Mes serveurs';
+  $('#mobPill').style.display = 'none';
+  openSidebar(false);
+  loadServers();
+}
+$('#navServers').addEventListener('click', (e) => { e.preventDefault(); showList(); });
+
+function setTab(name) {
+  $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
+  $$('#serverNav .nav-item').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
+  $$('.tabpane').forEach((p) => p.classList.toggle('active', p.id === 'pane-' + name));
+  if (name === 'files') loadFiles(currentPath);
+  if (name === 'schedules') loadSchedules();
+  if (name === 'backups') loadBackups();
+  if (name === 'console') { const c = $('#console'); c.scrollTop = c.scrollHeight; }
+  const strip = $('.tab.active');
+  if (strip && strip.scrollIntoView) strip.scrollIntoView({ block: 'nearest', inline: 'center' });
+}
+$$('.tab').forEach((t) => t.addEventListener('click', () => setTab(t.dataset.tab)));
+$$('#serverNav .nav-item').forEach((t) =>
+  t.addEventListener('click', (e) => { e.preventDefault(); $('#navServers').classList.remove('active'); setTab(t.dataset.tab); openSidebar(false); })
+);
+
 /* ---------------- Liste des serveurs ---------------- */
 async function loadServers() {
   try {
-    const servers = await api('/api/servers');
+    const list = await api('/api/servers');
     const grid = $('#serverGrid');
-    if (!servers.length) {
-      grid.innerHTML = '<div class="empty" style="grid-column:1/-1">Aucun serveur. Clique sur « + Nouveau serveur » pour commencer.</div>';
+    if (!list.length) {
+      grid.innerHTML = '<div class="empty" style="grid-column:1/-1">Aucun serveur pour le moment.<br>Clique sur « + Nouveau serveur » pour commencer.</div>';
       return;
     }
-    grid.innerHTML = servers.map((s) => `
-      <div class="card" data-id="${s.id}">
-        <div class="name"><span class="status-dot ${s.status}"></span>${escapeHtml(s.name)}</div>
+    grid.innerHTML = list.map((s) => `
+      <div class="card" data-id="${escapeAttr(s.id)}">
+        <div class="top">
+          <div class="name"><span class="status-dot ${escapeAttr(s.status)}"></span><span>${escapeHtml(s.name)}</span></div>
+          <span class="status-pill ${escapeAttr(s.status)}">${escapeHtml(s.status)}</span>
+        </div>
         <div class="meta">Fichier : ${escapeHtml(s.startupFile || 'index.js')}</div>
-        <div class="meta">ID : ${s.id}</div>
+        <div class="meta">ID : ${escapeHtml(s.id)}</div>
       </div>`).join('');
-    $$('#serverGrid .card').forEach((el) =>
-      el.addEventListener('click', () => openServer(el.dataset.id))
-    );
+    $$('#serverGrid .card').forEach((el) => el.addEventListener('click', () => openServer(el.dataset.id)));
   } catch (err) {
     toast(err.message, true);
   }
@@ -340,51 +403,59 @@ async function openServer(id) {
     const s = await api('/api/servers/' + id);
     currentServer = s;
     currentPath = '';
+    selected.clear();
+    histCpu.length = 0; histRam.length = 0;
     $('#listView').style.display = 'none';
     $('#serverView').style.display = 'block';
-    $('#svNameText').textContent = s.name;
-    $('#svSub').textContent = 'ID : ' + s.id + ' · Fichier : ' + (s.startupFile || 'index.js');
-    $('#startupFile').value = s.startupFile || 'index.js';
-    $('#startupEnv').value = JSON.stringify(s.env || {}, null, 2);
-    const autoChk = $('#autostartChk');
-    if (autoChk) autoChk.checked = s.autostart !== false;
-
+    $('#serverNav').style.display = '';
+    $('#serverNavTitle').textContent = s.name;
+    $('#mobTitle').textContent = s.name;
+    fillServerInfo(s);
     $('#console').innerHTML = '';
     (s.logs || []).forEach(appendConsole);
     updateStatusUI(s.status);
-
+    setTab('console');
+    $('#navServers').classList.remove('active');
     if (socket) socket.emit('join', { id });
-    loadFiles('');
     startStats();
   } catch (err) {
     toast(err.message, true);
   }
 }
 
-function updateStatusUI(status) {
-  const dot = $('#svDot');
-  dot.className = 'status-dot ' + status;
-  $('#stStatus').textContent = status;
+function fillServerInfo(s) {
+  $('#svNameText').textContent = s.name;
+  $('#svSub').textContent = 'ID : ' + s.id + ' · Fichier : ' + (s.startupFile || 'index.js');
+  $('#serverNavTitle').textContent = s.name;
+  $('#mobTitle').textContent = s.name;
+  $('#startupFile').value = s.startupFile || 'index.js';
+  $('#startupArgs').value = s.args || '';
+  renderEnvRows(s.env || {});
+  $('#autostartChk').checked = s.autostart !== false;
+  $('#autorestartChk').checked = s.autorestart !== false;
+  $('#setName').value = s.name;
+  $('#setId').textContent = s.id;
+  $('#setDir').textContent = '/servers/' + s.id;
 }
 
-$('#backBtn').addEventListener('click', () => {
-  if (currentServer && socket) socket.emit('leave', { id: currentServer.id });
-  stopStats();
-  currentServer = null;
-  $('#serverView').style.display = 'none';
-  $('#listView').style.display = 'block';
-  loadServers();
-});
+function updateStatusUI(status) {
+  $('#svDot').className = 'status-dot ' + status;
+  const p = $('#stStatus');
+  p.className = 'status-pill ' + status;
+  p.textContent = status;
+  const m = $('#mobPill');
+  m.className = 'status-pill ' + status;
+  m.textContent = status;
+  m.style.display = currentServer ? '' : 'none';
+}
 
 /* ---------------- Power ---------------- */
+const POWER_LABELS = { start: 'Démarrage...', stop: 'Arrêt...', restart: 'Redémarrage...', kill: 'Processus tué' };
 async function power(action) {
   if (!currentServer) return;
   try {
-    await api(`/api/servers/${currentServer.id}/power`, {
-      method: 'POST',
-      body: JSON.stringify({ action })
-    });
-    toast('Action : ' + action);
+    await api(`/api/servers/${currentServer.id}/power`, { method: 'POST', body: JSON.stringify({ action }) });
+    toast(POWER_LABELS[action] || action);
   } catch (err) {
     toast(err.message, true);
   }
@@ -394,25 +465,9 @@ $('#pStop').addEventListener('click', () => power('stop'));
 $('#pRestart').addEventListener('click', () => power('restart'));
 $('#pKill').addEventListener('click', () => power('kill'));
 
-$('#delServerBtn').addEventListener('click', async () => {
-  if (!currentServer) return;
-  if (!confirm('Supprimer définitivement ce serveur et tous ses fichiers ?')) return;
-  await api('/api/servers/' + currentServer.id, { method: 'DELETE' });
-  toast('Serveur supprimé');
-  $('#backBtn').click();
-});
-
-/* ---------------- Console ---------------- */
-$('#cmdForm').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const input = $('#cmdInput');
-  const cmd = input.value.trim();
-  if (!cmd || !currentServer) return;
-  if (socket) socket.emit('command', { id: currentServer.id, command: cmd });
-  input.value = '';
-});
-
-/* ---------------- Stats ---------------- */
+/* ---------------- Stats + graphiques ---------------- */
+const histCpu = [];
+const histRam = [];
 function startStats() {
   stopStats();
   statsTimer = setInterval(refreshStats, 2000);
@@ -428,79 +483,132 @@ async function refreshStats() {
     const s = await api(`/api/servers/${currentServer.id}/stats`);
     $('#stCpu').innerHTML = s.cpu + '<small>%</small>';
     $('#stRam').innerHTML = s.memory + '<small>Mo</small>';
-    $('#stUptime').innerHTML = fmtUptime(s.uptime);
+    $('#stDisk').innerHTML = (s.disk || 0) + '<small>Mo</small>';
+    $('#stUptime').textContent = fmtUptime(s.uptime);
     updateStatusUI(s.status);
+    histCpu.push(s.cpu); histRam.push(s.memory);
+    if (histCpu.length > 60) { histCpu.shift(); histRam.shift(); }
+    drawChart($('#chCpu'), histCpu, '#7c6cff', '%', 100);
+    drawChart($('#chRam'), histRam, '#22c58b', 'Mo');
   } catch (_) {}
 }
+function drawChart(canvas, data, color, unit, fixedMax) {
+  if (!canvas || !canvas.offsetWidth) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.offsetWidth, h = 70;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  const max = fixedMax ? Math.max(fixedMax, ...data) : Math.max(10, ...data) * 1.25;
+  const n = 60, step = w / (n - 1);
+  const pts = data.map((v, i) => [w - (data.length - 1 - i) * step, h - 6 - (v / max) * (h - 14)]);
+  ctx.strokeStyle = 'rgba(255,255,255,.06)'; ctx.lineWidth = 1;
+  [0.25, 0.5, 0.75].forEach((f) => { ctx.beginPath(); ctx.moveTo(0, h * f); ctx.lineTo(w, h * f); ctx.stroke(); });
+  if (!pts.length) return;
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, color + '55'); grad.addColorStop(1, color + '00');
+  ctx.beginPath(); ctx.moveTo(pts[0][0], h);
+  pts.forEach((p) => ctx.lineTo(p[0], p[1]));
+  ctx.lineTo(pts[pts.length - 1][0], h); ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+  ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
+  ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+  ctx.fillStyle = '#8691a7'; ctx.font = '11px Inter, sans-serif';
+  ctx.fillText(data[data.length - 1] + ' ' + unit, 6, 12);
+}
 
-/* ---------------- Onglets ---------------- */
-$$('.tab').forEach((tab) => {
-  tab.addEventListener('click', () => {
-    $$('.tab').forEach((t) => t.classList.remove('active'));
-    $$('.tabpane').forEach((p) => p.classList.remove('active'));
-    tab.classList.add('active');
-    $('#pane-' + tab.dataset.tab).classList.add('active');
-    if (tab.dataset.tab === 'files') loadFiles(currentPath);
+/* ---------------- Dialogue de saisie ---------------- */
+function ask(title, value) {
+  return new Promise((resolve) => {
+    $('#promptTitle').textContent = title;
+    const input = $('#promptInput');
+    input.value = value || '';
+    openModal('#promptModal');
+    setTimeout(() => { input.focus(); input.select(); }, 50);
+    const done = (v) => {
+      $('#promptOk').onclick = null;
+      input.onkeydown = null;
+      closeModal('#promptModal');
+      resolve(v);
+    };
+    $('#promptOk').onclick = () => done(input.value.trim() || null);
+    input.onkeydown = (e) => { if (e.key === 'Enter') done(input.value.trim() || null); };
+    $('#promptModal')._cancel = () => resolve(null);
   });
-});
+}
 
 /* ---------------- Gestionnaire de fichiers ---------------- */
+const selected = new Set();
+let lastEntries = [];
+const F = (p) => `/api/servers/${currentServer.id}/files${p || ''}`;
+const join = (name) => (currentPath ? currentPath + '/' : '') + name;
+const fmtDate = (t) => (t ? new Date(t).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
+const isZip = (n) => /\.zip$/i.test(n);
+function fileIcon(f) {
+  if (f.isDir) return '📁';
+  if (isZip(f.name)) return '🗜';
+  if (/\.(js|mjs|cjs|ts)$/i.test(f.name)) return '🟨';
+  if (/\.json$/i.test(f.name)) return '🧾';
+  if (/\.(png|jpe?g|gif|webp|svg)$/i.test(f.name)) return '🖼';
+  if (/\.(mp3|ogg|wav|mp4|mkv)$/i.test(f.name)) return '🎞';
+  return '📄';
+}
+
 async function loadFiles(p) {
   if (!currentServer) return;
   currentPath = p || '';
+  selected.clear();
   try {
-    const entries = await api(`/api/servers/${currentServer.id}/files?path=${encodeURIComponent(currentPath)}`);
+    const entries = await api(F(`?path=${encodeURIComponent(currentPath)}`));
+    lastEntries = entries;
     renderCrumbs();
-    const body = $('#filesBody');
     let html = '';
     if (currentPath) {
       const parent = currentPath.split('/').slice(0, -1).join('/');
-      html += `<tr><td class="name"><a href="#" data-dir="${escapeAttr(parent)}">📁 ..</a></td><td>—</td><td class="actions"></td></tr>`;
+      html += `<tr><td class="chk"></td><td class="name" colspan="4"><a href="#" data-dir="${escapeAttr(parent)}"><span class="ico">↩</span>..</a></td></tr>`;
     }
     html += entries.map((f) => `
-      <tr>
-        <td class="name">
-          ${f.isDir
-            ? `<a href="#" data-dir="${escapeAttr(f.path)}">📁 ${escapeHtml(f.name)}</a>`
-            : `<a href="#" data-file="${escapeAttr(f.path)}">📄 ${escapeHtml(f.name)}</a>`}
-        </td>
-        <td>${f.isDir ? '—' : fmtSize(f.size)}</td>
-        <td class="actions">
-          <button class="icon-btn" data-rename="${escapeAttr(f.path)}" title="Renommer">✏️</button>
-          <button class="icon-btn" data-del="${escapeAttr(f.path)}" title="Supprimer">🗑</button>
-        </td>
+      <tr data-path="${escapeAttr(f.path)}">
+        <td class="chk"><input type="checkbox" data-sel="${escapeAttr(f.path)}" /></td>
+        <td class="name"><a href="#" ${f.isDir ? 'data-dir' : 'data-file'}="${escapeAttr(f.path)}"><span class="ico">${fileIcon(f)}</span>${escapeHtml(f.name)}</a></td>
+        <td class="size">${f.isDir ? '—' : fmtSize(f.size)}</td>
+        <td class="date">${fmtDate(f.mtime)}</td>
+        <td class="actions"><button class="icon-btn" data-menu="${escapeAttr(f.path)}">⋮</button></td>
       </tr>`).join('');
-    body.innerHTML = html || '<tr><td colspan="3" style="color:var(--muted)">Dossier vide</td></tr>';
-
-    body.querySelectorAll('[data-dir]').forEach((a) =>
-      a.addEventListener('click', (e) => { e.preventDefault(); loadFiles(a.dataset.dir); })
-    );
-    body.querySelectorAll('[data-file]').forEach((a) =>
-      a.addEventListener('click', (e) => { e.preventDefault(); editFile(a.dataset.file); })
-    );
-    body.querySelectorAll('[data-del]').forEach((b) =>
-      b.addEventListener('click', async () => {
-        if (!confirm('Supprimer ' + b.dataset.del + ' ?')) return;
-        await api(`/api/servers/${currentServer.id}/files?path=${encodeURIComponent(b.dataset.del)}`, { method: 'DELETE' });
-        toast('Supprimé');
-        loadFiles(currentPath);
-      })
-    );
-    body.querySelectorAll('[data-rename]').forEach((b) =>
-      b.addEventListener('click', async () => {
-        const old = b.dataset.rename;
-        const newName = prompt('Nouveau nom :', old.split('/').pop());
-        if (!newName) return;
-        await api(`/api/servers/${currentServer.id}/files/rename`, {
-          method: 'POST',
-          body: JSON.stringify({ path: old, newName })
-        });
-        loadFiles(currentPath);
-      })
-    );
+    $('#filesBody').innerHTML = html || '<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:26px">Dossier vide</td></tr>';
+    $('#selAll').checked = false;
+    updateSelBar();
   } catch (err) {
     toast(err.message, true);
   }
+}
+
+$('#filesBody').addEventListener('click', (e) => {
+  const dir = e.target.closest('[data-dir]');
+  if (dir) { e.preventDefault(); return loadFiles(dir.dataset.dir); }
+  const file = e.target.closest('[data-file]');
+  if (file) { e.preventDefault(); return editFile(file.dataset.file); }
+  const menu = e.target.closest('[data-menu]');
+  if (menu) return openRowMenu(menu, menu.dataset.menu);
+  const sel = e.target.closest('[data-sel]');
+  if (sel) {
+    if (sel.checked) selected.add(sel.dataset.sel); else selected.delete(sel.dataset.sel);
+    sel.closest('tr').classList.toggle('sel', sel.checked);
+    updateSelBar();
+  }
+});
+$('#selAll').addEventListener('change', (e) => {
+  selected.clear();
+  $$('#filesBody [data-sel]').forEach((c) => {
+    c.checked = e.target.checked;
+    c.closest('tr').classList.toggle('sel', e.target.checked);
+    if (e.target.checked) selected.add(c.dataset.sel);
+  });
+  updateSelBar();
+});
+function updateSelBar() {
+  $('#selBar').style.display = selected.size ? 'flex' : 'none';
+  $('#selCount').textContent = selected.size + ' sélectionné(s)';
 }
 
 function renderCrumbs() {
@@ -509,123 +617,214 @@ function renderCrumbs() {
   let html = '';
   parts.forEach((p) => {
     acc = acc ? acc + '/' + p : p;
-    html += ` / <span class="crumb" data-crumb="${escapeAttr(acc)}">${escapeHtml(p)}</span>`;
+    html += `<span class="sep">/</span><span class="crumb" data-crumb="${escapeAttr(acc)}">${escapeHtml(p)}</span>`;
   });
   $('#crumbPath').innerHTML = html;
-  $('#crumbPath').querySelectorAll('[data-crumb]').forEach((c) =>
-    c.addEventListener('click', () => loadFiles(c.dataset.crumb))
-  );
+  $('#crumbPath').querySelectorAll('[data-crumb]').forEach((c) => c.addEventListener('click', () => loadFiles(c.dataset.crumb)));
 }
 $('#crumbRoot').addEventListener('click', () => loadFiles(''));
 $('#refreshFilesBtn').addEventListener('click', () => loadFiles(currentPath));
 
+/* Menu contextuel d'une ligne */
+function closeMenu() { const m = $('.menu'); if (m) m.remove(); }
+document.addEventListener('click', (e) => { if (!e.target.closest('.menu') && !e.target.closest('[data-menu]')) closeMenu(); });
+window.addEventListener('scroll', closeMenu, true);
+
+function openRowMenu(btn, p) {
+  closeMenu();
+  const f = lastEntries.find((x) => x.path === p);
+  if (!f) return;
+  const items = [];
+  if (!f.isDir) items.push(['edit', '✏️', 'Éditer']);
+  if (isZip(f.name)) items.push(['unzip', '📂', 'Décompresser']);
+  items.push(['rename', '🔤', 'Renommer'], ['move', '➡️', 'Déplacer'], ['copy', '📑', 'Dupliquer']);
+  if (!f.isDir) items.push(['download', '⬇️', 'Télécharger']);
+  items.push(['archive', '🗜', 'Compresser'], ['---'], ['delete', '🗑', 'Supprimer', 'red']);
+  const m = document.createElement('div');
+  m.className = 'menu';
+  m.innerHTML = items.map((i) => i[0] === '---' ? '<hr>' : `<button data-act="${i[0]}" class="${i[3] || ''}"><span>${i[1]}</span>${i[2]}</button>`).join('');
+  document.body.appendChild(m);
+  const r = btn.getBoundingClientRect();
+  const mh = m.offsetHeight, mw = m.offsetWidth;
+  m.style.left = Math.max(8, Math.min(r.right - mw, innerWidth - mw - 8)) + 'px';
+  m.style.top = (r.bottom + mh + 8 > innerHeight ? Math.max(8, r.top - mh - 4) : r.bottom + 4) + 'px';
+  m.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    closeMenu();
+    fileAction(b.dataset.act, f);
+  });
+}
+
+async function fileAction(act, f) {
+  try {
+    if (act === 'edit') return editFile(f.path);
+    if (act === 'download') return downloadFile(f.path, f.name);
+    if (act === 'rename') {
+      const name = await ask('Renommer', f.name);
+      if (!name || name === f.name) return;
+      await api(F('/rename'), { method: 'POST', body: JSON.stringify({ path: f.path, newName: name }) });
+    } else if (act === 'move') {
+      const dest = await ask('Déplacer vers (dossier, ex : lib ou vide pour la racine)', currentPath);
+      if (dest === null) return;
+      await api(F('/move'), { method: 'POST', body: JSON.stringify({ paths: [f.path], dest: dest.replace(/^\/+|\/+$/g, '') }) });
+    } else if (act === 'copy') {
+      await api(F('/copy'), { method: 'POST', body: JSON.stringify({ path: f.path }) });
+      toast('Dupliqué');
+    } else if (act === 'archive') {
+      const name = await ask('Nom de l\'archive', f.name.replace(/\.[^.]+$/, '') + '.zip');
+      if (!name) return;
+      toast('Compression...');
+      await api(F('/archive'), { method: 'POST', body: JSON.stringify({ paths: [f.path], dir: currentPath, name }) });
+      toast('Archive créée ✔');
+    } else if (act === 'unzip') {
+      toast('Décompression...');
+      const r = await api(F('/unarchive'), { method: 'POST', body: JSON.stringify({ path: f.path }) });
+      toast(`Décompressé ✔ (${r.count} fichiers)` + (r.entry ? ' · entrée : ' + r.entry : ''));
+      if (r.entry) { currentServer.startupFile = r.entry; $('#startupFile').value = r.entry; fillServerInfo(Object.assign(currentServer, { startupFile: r.entry })); }
+    } else if (act === 'delete') {
+      if (!confirm('Supprimer « ' + f.name + ' » ?')) return;
+      await api(F('/delete'), { method: 'POST', body: JSON.stringify({ paths: [f.path] }) });
+      toast('Supprimé');
+    }
+    loadFiles(currentPath);
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+async function downloadFile(p, name) {
+  try {
+    const res = await fetch(apiUrl(F(`/download?path=${encodeURIComponent(p)}`)), {
+      headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {},
+      credentials: 'include'
+    });
+    if (!res.ok) throw new Error('Téléchargement impossible');
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+/* Actions groupées */
+$('#selDelete').addEventListener('click', async () => {
+  if (!confirm('Supprimer ' + selected.size + ' élément(s) ?')) return;
+  try {
+    await api(F('/delete'), { method: 'POST', body: JSON.stringify({ paths: [...selected] }) });
+    toast('Supprimé');
+    loadFiles(currentPath);
+  } catch (err) { toast(err.message, true); }
+});
+$('#selMove').addEventListener('click', async () => {
+  const dest = await ask('Déplacer vers (dossier, vide = racine)', '');
+  if (dest === null) return;
+  try {
+    await api(F('/move'), { method: 'POST', body: JSON.stringify({ paths: [...selected], dest: dest.replace(/^\/+|\/+$/g, '') }) });
+    toast('Déplacé ✔');
+    loadFiles(currentPath);
+  } catch (err) { toast(err.message, true); }
+});
+$('#selArchive').addEventListener('click', async () => {
+  const name = await ask('Nom de l\'archive', 'archive.zip');
+  if (!name) return;
+  try {
+    toast('Compression...');
+    await api(F('/archive'), { method: 'POST', body: JSON.stringify({ paths: [...selected], dir: currentPath, name }) });
+    toast('Archive créée ✔');
+    loadFiles(currentPath);
+  } catch (err) { toast(err.message, true); }
+});
+
 $('#newDirBtn').addEventListener('click', async () => {
-  const name = prompt('Nom du dossier :');
+  const name = await ask('Nom du dossier');
   if (!name) return;
-  await api(`/api/servers/${currentServer.id}/files/mkdir`, {
-    method: 'POST',
-    body: JSON.stringify({ path: (currentPath ? currentPath + '/' : '') + name })
-  });
-  loadFiles(currentPath);
+  try {
+    await api(F('/mkdir'), { method: 'POST', body: JSON.stringify({ path: join(name) }) });
+    loadFiles(currentPath);
+  } catch (err) { toast(err.message, true); }
 });
-
 $('#newFileBtn').addEventListener('click', async () => {
-  const name = prompt('Nom du fichier :');
+  const name = await ask('Nom du fichier', 'nouveau.js');
   if (!name) return;
-  await api(`/api/servers/${currentServer.id}/files/write`, {
-    method: 'POST',
-    body: JSON.stringify({ path: (currentPath ? currentPath + '/' : '') + name, content: '' })
-  });
-  loadFiles(currentPath);
+  try {
+    await api(F('/write'), { method: 'POST', body: JSON.stringify({ path: join(name), content: '' }) });
+    loadFiles(currentPath);
+    editFile(join(name));
+  } catch (err) { toast(err.message, true); }
 });
 
-/* ---------------- Editeur ---------------- */
+/* ---------------- Éditeur ---------------- */
 let editingPath = null;
 async function editFile(p) {
   try {
-    const { content } = await api(`/api/servers/${currentServer.id}/files/read?path=${encodeURIComponent(p)}`);
+    const { content } = await api(F(`/read?path=${encodeURIComponent(p)}`));
     editingPath = p;
-    $('#editorTitle').textContent = 'Éditer : ' + p;
+    $('#editorTitle').textContent = p;
     $('#editorContent').value = content;
     openModal('#editorModal');
   } catch (err) {
     toast(err.message, true);
   }
 }
-$('#saveFileBtn').addEventListener('click', async () => {
+async function saveEditor() {
   try {
-    await api(`/api/servers/${currentServer.id}/files/write`, {
-      method: 'POST',
-      body: JSON.stringify({ path: editingPath, content: $('#editorContent').value })
-    });
-    toast('Fichier enregistré');
-    closeModal('#editorModal');
-    loadFiles(currentPath);
-  } catch (err) {
-    toast(err.message, true);
+    await api(F('/write'), { method: 'POST', body: JSON.stringify({ path: editingPath, content: $('#editorContent').value }) });
+    toast('Fichier enregistré ✔');
+  } catch (err) { toast(err.message, true); }
+}
+$('#saveFileBtn').addEventListener('click', async () => { await saveEditor(); closeModal('#editorModal'); loadFiles(currentPath); });
+$('#editorContent').addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveEditor(); }
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const t = e.target, s = t.selectionStart;
+    t.value = t.value.slice(0, s) + '  ' + t.value.slice(t.selectionEnd);
+    t.selectionStart = t.selectionEnd = s + 2;
   }
 });
 
-/* ---------------- Upload ZIP ---------------- */
+/* ---------------- Upload (plusieurs fichiers, SANS extraction) ---------------- */
 const dropzone = $('#dropzone');
 const fileInput = $('#fileInput');
 dropzone.addEventListener('click', () => fileInput.click());
-dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('drag'); });
-dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
-dropzone.addEventListener('drop', (e) => {
-  e.preventDefault();
-  dropzone.classList.remove('drag');
-  if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
-});
-fileInput.addEventListener('change', () => {
-  if (fileInput.files.length) uploadFile(fileInput.files[0]);
-  fileInput.value = '';
-});
+$('#uploadBtn').addEventListener('click', () => fileInput.click());
+['dragenter', 'dragover'].forEach((ev) => dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.add('drag'); }));
+['dragleave', 'drop'].forEach((ev) => dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.remove('drag'); }));
+dropzone.addEventListener('drop', (e) => { if (e.dataTransfer.files.length) uploadFiles([...e.dataTransfer.files]); });
+fileInput.addEventListener('change', () => { if (fileInput.files.length) uploadFiles([...fileInput.files]); fileInput.value = ''; });
 
-async function uploadFile(file) {
+async function uploadFiles(fileList, retried) {
   if (!currentServer) return;
-  // Securite : on s'assure d'avoir un jeton valide AVANT l'upload.
   if (!TOKEN) {
     try { const me = await api('/api/me'); if (me.token) setToken(me.token); } catch (e) {}
   }
   const form = new FormData();
-  form.append('file', file);
+  fileList.forEach((f) => form.append('file', f));
   form.append('path', currentPath);
 
   const xhr = new XMLHttpRequest();
-  xhr.open('POST', apiUrl(`/api/servers/${currentServer.id}/files/upload`));
-  // IMPORTANT : envoyer le jeton d'authentification sur l'upload (sinon 401 "Non authentifie").
+  xhr.open('POST', apiUrl(F('/upload')));
   if (TOKEN) xhr.setRequestHeader('Authorization', 'Bearer ' + TOKEN);
   xhr.withCredentials = true;
-  const prog = $('#uploadProgress');
-  const bar = $('#uploadBar');
+  const prog = $('#uploadProgress'), bar = $('#uploadBar');
   prog.classList.add('active');
-
-  xhr.upload.onprogress = (e) => {
-    if (e.lengthComputable) bar.style.width = Math.round((e.loaded / e.total) * 100) + '%';
-  };
-  let retried = false;
+  xhr.upload.onprogress = (e) => { if (e.lengthComputable) bar.style.width = Math.round((e.loaded / e.total) * 100) + '%'; };
   xhr.onload = () => {
     prog.classList.remove('active');
     bar.style.width = '0';
     if (xhr.status === 200) {
-      let data = {};
-      try { data = JSON.parse(xhr.responseText); } catch (_) {}
-      if (data.entry) {
-        toast('Upload terminé ✔ · entrée : ' + data.entry);
-        $('#startupFile').value = data.entry;
-        if (currentServer) currentServer.startupFile = data.entry;
-      } else {
-        toast('Upload terminé ✔ (démarrage auto des dépendances)');
-      }
+      const hasZip = fileList.some((f) => isZip(f.name));
+      toast(hasZip ? 'Envoyé ✔ — utilise « Décompresser » sur le .zip' : 'Fichier(s) envoyé(s) ✔');
       loadFiles(currentPath);
     } else if (xhr.status === 401 && !retried) {
-      // Jeton expire ou manquant : on le rafraichit et on reessaie une fois.
-      retried = true;
-      api('/api/me').then((me) => {
-        if (me && me.token) setToken(me.token);
-        uploadFile(file);
-      }).catch(() => toast('Session expirée — reconnecte-toi.', true));
+      api('/api/me').then((me) => { if (me && me.token) setToken(me.token); uploadFiles(fileList, true); })
+        .catch(() => toast('Session expirée — reconnecte-toi.', true));
     } else {
       let msg = 'Erreur upload';
       try { msg = JSON.parse(xhr.responseText).error || msg; } catch (_) {}
@@ -636,49 +835,218 @@ async function uploadFile(file) {
   xhr.send(form);
 }
 
-/* ---------------- Startup ---------------- */
+/* ---------------- Démarrage ---------------- */
+function renderEnvRows(env) {
+  const rows = Object.entries(env);
+  $('#envRows').innerHTML = rows.map(([k, v]) => envRowHtml(k, v)).join('');
+}
+function envRowHtml(k, v) {
+  return `<div class="env-row"><input type="text" class="env-k" placeholder="NOM" value="${escapeAttr(k)}" /><input type="text" class="env-v" placeholder="valeur" value="${escapeAttr(v)}" /><button type="button" class="btn danger sm env-del">✕</button></div>`;
+}
+$('#addEnvBtn').addEventListener('click', () => $('#envRows').insertAdjacentHTML('beforeend', envRowHtml('', '')));
+$('#envRows').addEventListener('click', (e) => { if (e.target.closest('.env-del')) e.target.closest('.env-row').remove(); });
+function readEnv() {
+  const env = {};
+  $$('#envRows .env-row').forEach((r) => {
+    const k = r.querySelector('.env-k').value.trim();
+    if (k) env[k] = r.querySelector('.env-v').value;
+  });
+  return env;
+}
+
 $('#saveStartupBtn').addEventListener('click', async () => {
   try {
-    const env = $('#startupEnv').value.trim() || '{}';
-    JSON.parse(env); // validation
-    await api(`/api/servers/${currentServer.id}/startup`, {
+    const updated = await api(`/api/servers/${currentServer.id}/startup`, {
       method: 'PUT',
       body: JSON.stringify({
-        startupFile: $('#startupFile').value,
-        env,
-        autostart: $('#autostartChk') ? $('#autostartChk').checked : true
+        startupFile: $('#startupFile').value.trim() || 'index.js',
+        args: $('#startupArgs').value.trim(),
+        env: readEnv(),
+        autostart: $('#autostartChk').checked,
+        autorestart: $('#autorestartChk').checked
       })
     });
-    toast('Configuration enregistrée');
-  } catch (err) {
-    toast('JSON invalide : ' + err.message, true);
-  }
+    currentServer = Object.assign(currentServer, updated);
+    fillServerInfo(currentServer);
+    toast('Configuration enregistrée ✔');
+  } catch (err) { toast(err.message, true); }
 });
 
-/* Détecter le fichier d'entrée */
 $('#detectEntryBtn').addEventListener('click', async () => {
-  if (!currentServer) return;
   try {
     const r = await api(`/api/servers/${currentServer.id}/detect`, { method: 'POST' });
     $('#startupFile').value = r.entry;
     currentServer.startupFile = r.entry;
+    fillServerInfo(currentServer);
     toast('Fichier d\'entrée détecté : ' + r.entry);
-  } catch (err) {
-    toast(err.message, true);
-  }
+  } catch (err) { toast(err.message, true); }
 });
 
-/* Installer les dépendances */
 $('#installDepsBtn').addEventListener('click', async () => {
-  if (!currentServer) return;
-  toast('Installation des dépendances en cours... (voir la console)');
+  toast('Installation en cours... (voir la console)');
+  setTab('console');
   try {
     const r = await api(`/api/servers/${currentServer.id}/install`, { method: 'POST' });
-    if (r && r.ok === false) toast('Échec de l\'installation — voir la console', true);
-    else toast('Dépendances installées ✔');
-  } catch (err) {
-    toast(err.message, true);
-  }
+    toast(r && r.ok === false ? 'Échec de l\'installation — voir la console' : 'Dépendances installées ✔', r && r.ok === false);
+  } catch (err) { toast(err.message, true); }
+});
+$('#pkgForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const packages = $('#pkgInput').value.trim();
+  if (!packages) return;
+  setTab('console');
+  try {
+    const r = await api(`/api/servers/${currentServer.id}/install`, { method: 'POST', body: JSON.stringify({ packages }) });
+    toast(r.ok ? 'Paquet installé ✔' : 'Échec — voir la console', !r.ok);
+    if (r.ok) $('#pkgInput').value = '';
+  } catch (err) { toast(err.message, true); }
+});
+
+/* ---------------- Planification ---------------- */
+async function loadSchedules() {
+  try {
+    const list = await api(`/api/servers/${currentServer.id}/schedules`);
+    const ACT = { restart: 'Redémarrer', start: 'Démarrer', stop: 'Arrêter', command: 'Commande' };
+    $('#schedList').innerHTML = list.length ? list.map((s) => `
+      <div class="item" data-sid="${escapeAttr(s.id)}">
+        <div class="grow">
+          <div class="t">${escapeHtml(s.name)} ${s.enabled ? '' : '<span class="status-pill">désactivée</span>'}</div>
+          <div class="s">${ACT[s.action]}${s.action === 'command' ? ' « ' + escapeHtml(s.payload) + ' »' : ''} · ${s.type === 'daily' ? 'chaque jour à ' + escapeHtml(s.at) + ' UTC' : 'toutes les ' + s.everyMin + ' min'}${s.lastRun ? ' · dernière : ' + fmtDate(s.lastRun) : ''}</div>
+        </div>
+        <div class="btns">
+          <button class="btn ghost sm" data-sact="run">▶ Lancer</button>
+          <button class="btn ghost sm" data-sact="toggle">${s.enabled ? 'Désactiver' : 'Activer'}</button>
+          <button class="btn danger sm" data-sact="del">Supprimer</button>
+        </div>
+      </div>`).join('') : '<div class="empty">Aucune tâche planifiée.</div>';
+    $('#schedList')._data = list;
+  } catch (err) { toast(err.message, true); }
+}
+$('#schedList').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-sact]');
+  if (!b) return;
+  const sid = b.closest('.item').dataset.sid;
+  const s = ($('#schedList')._data || []).find((x) => x.id === sid);
+  const base = `/api/servers/${currentServer.id}/schedules/${sid}`;
+  try {
+    if (b.dataset.sact === 'run') { await api(base + '/run', { method: 'POST' }); toast('Tâche lancée'); }
+    if (b.dataset.sact === 'toggle') await api(base, { method: 'PUT', body: JSON.stringify({ enabled: !s.enabled }) });
+    if (b.dataset.sact === 'del') { if (!confirm('Supprimer cette tâche ?')) return; await api(base, { method: 'DELETE' }); }
+    loadSchedules();
+  } catch (err) { toast(err.message, true); }
+});
+function syncSchedForm() {
+  const daily = $('#schType').value === 'daily';
+  $('#schEveryBox').style.display = daily ? 'none' : '';
+  $('#schAtBox').style.display = daily ? '' : 'none';
+  $('#schPayloadBox').style.display = $('#schAction').value === 'command' ? '' : 'none';
+}
+$('#schType').addEventListener('change', syncSchedForm);
+$('#schAction').addEventListener('change', syncSchedForm);
+$('#newSchedBtn').addEventListener('click', () => { $('#schName').value = ''; syncSchedForm(); openModal('#schedModal'); });
+$('#saveSchedBtn').addEventListener('click', async () => {
+  try {
+    await api(`/api/servers/${currentServer.id}/schedules`, {
+      method: 'POST',
+      body: JSON.stringify({
+        name: $('#schName').value.trim() || 'Tâche',
+        action: $('#schAction').value,
+        type: $('#schType').value,
+        everyMin: $('#schEvery').value,
+        at: $('#schAt').value,
+        payload: $('#schPayload').value
+      })
+    });
+    closeModal('#schedModal');
+    toast('Tâche créée ✔');
+    loadSchedules();
+  } catch (err) { toast(err.message, true); }
+});
+
+/* ---------------- Sauvegardes ---------------- */
+async function loadBackups() {
+  try {
+    const list = await api(`/api/servers/${currentServer.id}/backups`);
+    $('#backupList').innerHTML = list.length ? list.map((b) => `
+      <div class="item" data-bname="${escapeAttr(b.name)}">
+        <div class="grow"><div class="t">${escapeHtml(b.name)}</div><div class="s">${fmtDate(b.createdAt)} · ${fmtSize(b.size)}</div></div>
+        <div class="btns">
+          <button class="btn ghost sm" data-bact="download">⬇ Télécharger</button>
+          <button class="btn ghost sm" data-bact="restore">↺ Restaurer</button>
+          <button class="btn danger sm" data-bact="del">Supprimer</button>
+        </div>
+      </div>`).join('') : '<div class="empty">Aucune sauvegarde.</div>';
+  } catch (err) { toast(err.message, true); }
+}
+$('#newBackupBtn').addEventListener('click', async () => {
+  const label = await ask('Nom de la sauvegarde (optionnel)', '');
+  if (label === null) return;
+  toast('Création de la sauvegarde...');
+  try {
+    await api(`/api/servers/${currentServer.id}/backups`, { method: 'POST', body: JSON.stringify({ label }) });
+    toast('Sauvegarde créée ✔');
+    loadBackups();
+  } catch (err) { toast(err.message, true); }
+});
+$('#backupList').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-bact]');
+  if (!b) return;
+  const name = b.closest('.item').dataset.bname;
+  const base = `/api/servers/${currentServer.id}/backups/${encodeURIComponent(name)}`;
+  try {
+    if (b.dataset.bact === 'download') {
+      const res = await fetch(apiUrl(base + '/download'), { headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {}, credentials: 'include' });
+      if (!res.ok) throw new Error('Téléchargement impossible');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(await res.blob());
+      a.download = name;
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    } else if (b.dataset.bact === 'restore') {
+      if (!confirm('Restaurer cette sauvegarde ? Les fichiers actuels seront remplacés et le bot arrêté.')) return;
+      await api(base + '/restore', { method: 'POST' });
+      toast('Sauvegarde restaurée ✔');
+    } else if (b.dataset.bact === 'del') {
+      if (!confirm('Supprimer cette sauvegarde ?')) return;
+      await api(base, { method: 'DELETE' });
+      loadBackups();
+    }
+  } catch (err) { toast(err.message, true); }
+});
+
+/* ---------------- Paramètres ---------------- */
+$('#saveNameBtn').addEventListener('click', async () => {
+  try {
+    const s = await api(`/api/servers/${currentServer.id}/settings`, { method: 'PUT', body: JSON.stringify({ name: $('#setName').value }) });
+    currentServer = Object.assign(currentServer, s);
+    fillServerInfo(currentServer);
+    toast('Serveur renommé ✔');
+  } catch (err) { toast(err.message, true); }
+});
+$('#pwdForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/api/password', { method: 'POST', body: JSON.stringify({ password: $('#newPwd').value }) });
+    $('#newPwd').value = '';
+    toast('Mot de passe modifié ✔');
+  } catch (err) { toast(err.message, true); }
+});
+$('#reinstallBtn').addEventListener('click', async () => {
+  if (!confirm('Supprimer TOUS les fichiers de ce serveur ? Cette action est irréversible (pense à faire une sauvegarde).')) return;
+  try {
+    await api(`/api/servers/${currentServer.id}/reinstall`, { method: 'POST' });
+    toast('Serveur réinitialisé');
+    currentPath = '';
+  } catch (err) { toast(err.message, true); }
+});
+$('#delServerBtn').addEventListener('click', async () => {
+  if (!currentServer) return;
+  if (!confirm('Supprimer définitivement ce serveur, ses fichiers et ses sauvegardes ?')) return;
+  try {
+    await api('/api/servers/' + currentServer.id, { method: 'DELETE' });
+    toast('Serveur supprimé');
+    showList();
+  } catch (err) { toast(err.message, true); }
 });
 
 /* ---------------- Nouveau serveur ---------------- */
@@ -687,36 +1055,27 @@ $('#createServerBtn').addEventListener('click', async () => {
   const name = $('#nsName').value.trim();
   if (!name) return toast('Nom requis', true);
   try {
-    const env = $('#nsEnv').value.trim();
-    if (env) JSON.parse(env);
     const s = await api('/api/servers', {
       method: 'POST',
-      body: JSON.stringify({
-        name,
-        startupFile: $('#nsFile').value.trim() || 'index.js',
-        env: env || undefined
-      })
+      body: JSON.stringify({ name, startupFile: $('#nsFile').value.trim() || 'index.js' })
     });
     closeModal('#newServerModal');
     $('#nsName').value = '';
-    $('#nsEnv').value = '';
-    toast('Serveur créé');
-    loadServers();
+    toast('Serveur créé ✔');
     openServer(s.id);
-  } catch (err) {
-    toast(err.message, true);
-  }
+  } catch (err) { toast(err.message, true); }
 });
 
 /* ---------------- Modals ---------------- */
 function openModal(sel) { $(sel).classList.add('active'); }
 function closeModal(sel) { $(sel).classList.remove('active'); }
-$$('[data-close]').forEach((b) =>
-  b.addEventListener('click', () => b.closest('.modal-bg').classList.remove('active'))
-);
-$$('.modal-bg').forEach((m) =>
-  m.addEventListener('click', (e) => { if (e.target === m) m.classList.remove('active'); })
-);
+function dismissModal(m) {
+  m.classList.remove('active');
+  if (m._cancel) { m._cancel(); m._cancel = null; }
+}
+$$('[data-close]').forEach((b) => b.addEventListener('click', () => dismissModal(b.closest('.modal-bg'))));
+$$('.modal-bg').forEach((m) => m.addEventListener('click', (e) => { if (e.target === m) dismissModal(m); }));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $$('.modal-bg.active').forEach(dismissModal); });
 
 /* ---------------- Escape ---------------- */
 function escapeHtml(s) {

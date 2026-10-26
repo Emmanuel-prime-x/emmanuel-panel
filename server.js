@@ -559,7 +559,8 @@ io.on('connection', (socket) => {
   socket.on('join', ({ id }) => {
     if (!id) return;
     socket.join(`server:${id}`);
-    // Rejoue l'historique des logs
+    // Rejoue l'historique des logs (le client vide d'abord sa console : pas de doublons)
+    socket.emit('console-reset', { id });
     servers.getLogs(id).forEach((line) => socket.emit('console', { id, line }));
     socket.emit('status', { id, status: servers.getStatus(id) });
   });

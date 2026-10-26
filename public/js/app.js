@@ -276,6 +276,9 @@ function initSocket() {
     if (currentServer) socket.emit('join', { id: currentServer.id });
   });
   socket.on('connect_error', () => {});
+  socket.on('console-reset', ({ id }) => {
+    if (currentServer && currentServer.id === id) $('#console').innerHTML = '';
+  });
   socket.on('console', ({ id, line }) => {
     if (currentServer && currentServer.id === id) appendConsole(line);
   });

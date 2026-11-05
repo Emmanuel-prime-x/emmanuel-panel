@@ -1,0 +1,11 @@
+# ============================================================================
+#  BOTS INTEGRES  (installes pendant le build : plus de "npm install" lent)
+#  Une ligne par bot :   nom   url-du-depot-git   [branche]
+#  Exemples (enleve le # pour activer) :
+#    queen-hina    https://github.com/TON-COMPTE/queen-hina.git
+#    bug-bot       https://github.com/TON-COMPTE/bug-bot.git   main
+#  Depot PRIVE : utilise ${GITHUB_TOKEN} (variable Render) au lieu d'ecrire ton jeton ici :
+#    mon-bot       https://${GITHUB_TOKEN}@github.com/TON-COMPTE/mon-bot.git
+#  Tu peux aussi copier directement le dossier d'un bot dans bots/<nom>/ du depot.
+#  Apres modification : Render reconstruit tout seul (Manual Deploy si besoin).
+# ============================================================================

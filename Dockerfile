@@ -33,6 +33,11 @@ RUN npm install --omit=dev --no-audit --no-fund
 # --- Code du panel ---
 COPY . .
 
+# --- Bots integres : npm install execute PENDANT LE BUILD (machine puissante),
+#     pas sur l'instance gratuite (0,1 CPU). Voir bots.txt / GUIDE-BOTS.md.
+ARG GITHUB_TOKEN
+RUN sh scripts/build-bots.sh
+
 # --- Dossiers de donnees (recreees au demarrage si besoin) ---
 RUN mkdir -p data servers data/uploads data/pids data/home data/npm-cache
 

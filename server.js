@@ -16,6 +16,8 @@ const fs = require('fs');
 const session = require('express-session');
 const cookieParser = require('cookie-parser');
 const multer = require('multer');
+const chunks = require('./lib/chunks');
+const baked = require('./lib/baked');
 const { Server } = require('socket.io');
 
 const config = require('./config');
@@ -363,6 +365,35 @@ app.post(
   }
 );
 
+/**
+ * Upload par morceaux (corps brut de 512 Ko max, reessayable) : voir lib/chunks.js.
+ * Parametres (query) : uid, idx, total, name, path.
+ */
+app.post(
+  '/api/servers/:id/files/chunk',
+  auth.requireAuth,
+  express.raw({ type: () => true, limit: '1mb' }),
+  (req, res) => {
+    const id = req.params.id;
+    if (!store.getServer(id)) return res.status(404).json({ error: 'Serveur introuvable' });
+    try {
+      const { uid, idx, total, name, path: destRel } = req.query;
+      const r = chunks.writeChunk({ uid, idx, total, buf: Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0) });
+      if (!r.done) return res.json({ ok: true, done: false, received: r.received, total: r.total });
+      const clean = path.basename(String(name || 'fichier')).replace(/[\u0000-\u001f]/g, '') || 'fichier';
+      const dest = files.safeResolve(id, path.posix.join(String(destRel || ''), clean));
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(r.file, dest);
+      fs.rmSync(r.file, { force: true });
+      files.removeStarter(id);
+      servers.pushLog(id, `\x1b[36m[PANEL] Fichier(s) envoye(s) : ${clean}\x1b[0m`);
+      res.json({ ok: true, done: true, name: clean });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  }
+);
+
 /** Telecharge un fichier du serveur. */
 app.get('/api/servers/:id/files/download', auth.requireAuth, (req, res) => {
   try {
@@ -448,6 +479,7 @@ app.post('/api/servers/:id/reinstall', auth.requireAuth, async (req, res) => {
   const id = req.params.id;
   const s = store.getServer(id);
   if (!s) return res.status(404).json({ error: 'Serveur introuvable' });
+  if (s.baked) return res.status(400).json({ error: 'Bot integre : modifie-le dans ton depot GitHub (bots/' + s.baked + ').' });
   servers.stop(id, true);
   const dir = servers.serverDir(id);
   try {
@@ -609,6 +641,11 @@ function onListening() {
 
   // Nettoie les bots orphelins d'une instance precedente, puis relance ceux
   // marques "autostart" (survit aux redemarrages du panel).
+  try {
+    baked.provision();
+  } catch (e) {
+    console.error('[boot] erreur bots integres :', e.message);
+  }
   try {
     servers.killOrphans();
   } catch (e) {

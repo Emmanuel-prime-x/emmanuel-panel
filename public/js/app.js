@@ -845,6 +845,7 @@ async function uploadOne(file, doneBytes, totalBytes, setBar) {
       for (let t = 0; t < 12 && !ok; t++) {
         const r = await sendChunk(url, blob);
         if (r.status === 200) { ok = true; break; }
+        if (r.status === 404 && !r.body.error) throw new Error('NOCHUNK'); // serveur plus ancien : pas de route par morceaux
         if (r.status === 401) {
           try { const me = await api('/api/me'); if (me && me.token) setToken(me.token); } catch (e) {}
         } else if (r.status >= 400 && r.status < 500 && r.status !== 408 && r.status !== 429) {
@@ -863,6 +864,27 @@ async function uploadOne(file, doneBytes, totalBytes, setBar) {
   throw new Error('Envoi interrompu (panel redémarré ?). Réessaie.');
 }
 
+/* Envoi classique (multipart) : utilise si le serveur n'a pas encore la route par morceaux. */
+function uploadLegacy(file) {
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('path', currentPath);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', apiUrl(F('/upload')));
+    if (TOKEN) xhr.setRequestHeader('Authorization', 'Bearer ' + TOKEN);
+    xhr.withCredentials = true;
+    xhr.onload = () => {
+      if (xhr.status === 200) return resolve();
+      let msg = 'Erreur upload (' + xhr.status + ')';
+      try { msg = JSON.parse(xhr.responseText).error || msg; } catch (_) {}
+      reject(new Error(msg));
+    };
+    xhr.onerror = () => reject(new Error('Erreur réseau'));
+    xhr.send(form);
+  });
+}
+
 async function uploadFiles(fileList) {
   if (!currentServer) return;
   if (!TOKEN) {
@@ -878,8 +900,14 @@ async function uploadFiles(fileList) {
   let done = 0;
   try {
     for (const f of fileList) {
-      await uploadOne(f, done, totalBytes, setBar);
+      try {
+        await uploadOne(f, done, totalBytes, setBar);
+      } catch (e) {
+        if (e.message !== 'NOCHUNK') throw e;
+        await uploadLegacy(f);
+      }
       done += f.size;
+      setBar(done, '');
     }
     const hasZip = fileList.some((f) => isZip(f.name));
     toast(hasZip ? 'Envoyé ✔ — utilise « Décompresser » sur le .zip' : 'Fichier(s) envoyé(s) ✔');

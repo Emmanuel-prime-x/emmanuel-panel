@@ -46,6 +46,12 @@ auth.initAuth();
 
 const app = express();
 const server = http.createServer(app);
+// Render (et la plupart des reverse-proxies) garde les connexions ouvertes plus
+// longtemps que le defaut de Node (5 s) : sans ces reglages, des requetes
+// (upload, etc.) echouent au hasard avec "Erreur reseau".
+server.keepAliveTimeout = 125 * 1000;
+server.headersTimeout = 130 * 1000;
+server.requestTimeout = 0; // pas de limite sur les gros uploads
 const io = new Server(server, {
   cors: { origin: true, credentials: true }
 });
@@ -438,14 +444,16 @@ app.put('/api/servers/:id/settings', auth.requireAuth, (req, res) => {
 });
 
 /** Vide tous les fichiers du serveur (fichier de demarrage par defaut recree). */
-app.post('/api/servers/:id/reinstall', auth.requireAuth, (req, res) => {
+app.post('/api/servers/:id/reinstall', auth.requireAuth, async (req, res) => {
   const id = req.params.id;
   const s = store.getServer(id);
   if (!s) return res.status(404).json({ error: 'Serveur introuvable' });
   servers.stop(id, true);
   const dir = servers.serverDir(id);
   try {
-    for (const e of fs.readdirSync(dir)) fs.rmSync(path.join(dir, e), { recursive: true, force: true });
+    // Suppression asynchrone : node_modules compte des milliers de fichiers et
+    // une suppression synchrone gelerait tout le panel (d'ou "Erreur reseau").
+    for (const e of fs.readdirSync(dir)) await fs.promises.rm(path.join(dir, e), { recursive: true, force: true });
     servers.writeStarter(id);
     servers.pushLog(id, `\x1b[33m[PANEL] Serveur reinitialise : tous les fichiers ont ete supprimes.\x1b[0m`);
     res.json({ ok: true });

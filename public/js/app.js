@@ -802,7 +802,8 @@ $('#uploadBtn').addEventListener('click', () => fileInput.click());
 dropzone.addEventListener('drop', (e) => { if (e.dataTransfer.files.length) uploadFiles([...e.dataTransfer.files]); });
 fileInput.addEventListener('change', () => { if (fileInput.files.length) uploadFiles([...fileInput.files]); fileInput.value = ''; });
 
-async function uploadFiles(fileList, retried) {
+async function uploadFiles(fileList, retried, netTry) {
+  netTry = netTry || 0;
   if (!currentServer) return;
   if (!TOKEN) {
     try { const me = await api('/api/me'); if (me.token) setToken(me.token); } catch (e) {}
@@ -834,7 +835,21 @@ async function uploadFiles(fileList, retried) {
       toast(msg, true);
     }
   };
-  xhr.onerror = () => { prog.classList.remove('active'); toast('Erreur réseau', true); };
+  xhr.onerror = async () => {
+    prog.classList.remove('active');
+    bar.style.width = '0';
+    // Coupure passagere (panel occupe / redemarre) : on attend qu'il reponde
+    // puis on renvoie automatiquement, jusqu'a 4 fois.
+    if (netTry < 4) {
+      toast('Connexion perdue — nouvelle tentative…', true);
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try { const r = await fetch(apiUrl('/api/ping'), { cache: 'no-store' }); if (r.ok) break; } catch (e) {}
+      }
+      return uploadFiles(fileList, retried, netTry + 1);
+    }
+    toast('Erreur réseau : le panel ne répond pas. Réessaie dans une minute.', true);
+  };
   xhr.send(form);
 }
 

@@ -802,55 +802,94 @@ $('#uploadBtn').addEventListener('click', () => fileInput.click());
 dropzone.addEventListener('drop', (e) => { if (e.dataTransfer.files.length) uploadFiles([...e.dataTransfer.files]); });
 fileInput.addEventListener('change', () => { if (fileInput.files.length) uploadFiles([...fileInput.files]); fileInput.value = ''; });
 
-async function uploadFiles(fileList, retried, netTry) {
-  netTry = netTry || 0;
+/* Upload par morceaux de 512 Ko : chaque morceau est reessaye tout seul en cas
+   de coupure (reseau mobile, panel occupe...). Plus de "Erreur reseau" sur un
+   gros fichier. */
+const CHUNK = 512 * 1024;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function randomUid() {
+  const a = new Uint8Array(12);
+  (window.crypto || window.msCrypto).getRandomValues(a);
+  return [...a].map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+function sendChunk(url, blob) {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.timeout = 90000;
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    if (TOKEN) xhr.setRequestHeader('Authorization', 'Bearer ' + TOKEN);
+    xhr.withCredentials = true;
+    xhr.onload = () => {
+      let body = {};
+      try { body = JSON.parse(xhr.responseText); } catch (_) {}
+      resolve({ status: xhr.status, body });
+    };
+    xhr.onerror = () => resolve({ status: 0, body: {} });
+    xhr.ontimeout = () => resolve({ status: 0, body: {} });
+    xhr.send(blob);
+  });
+}
+
+async function uploadOne(file, doneBytes, totalBytes, setBar) {
+  const total = Math.max(1, Math.ceil(file.size / CHUNK));
+  for (let attempt = 0; attempt < 3; attempt++) { // 3 essais du fichier complet si le panel a redemarre
+    const uid = randomUid();
+    let restart = false;
+    for (let i = 0; i < total; i++) {
+      const blob = file.slice(i * CHUNK, Math.min(file.size, (i + 1) * CHUNK));
+      const url = apiUrl(F('/files/chunk')) + '?uid=' + uid + '&idx=' + i + '&total=' + total +
+        '&name=' + encodeURIComponent(file.name) + '&path=' + encodeURIComponent(currentPath || '');
+      let ok = false;
+      for (let t = 0; t < 12 && !ok; t++) {
+        const r = await sendChunk(url, blob);
+        if (r.status === 200) { ok = true; break; }
+        if (r.status === 401) {
+          try { const me = await api('/api/me'); if (me && me.token) setToken(me.token); } catch (e) {}
+        } else if (r.status >= 400 && r.status < 500 && r.status !== 408 && r.status !== 429) {
+          if (/perdu|recommence/i.test(r.body.error || '')) { restart = true; break; }
+          throw new Error(r.body.error || ('Erreur ' + r.status));
+        }
+        setBar && setBar(null, 'Connexion instable — nouvelle tentative (' + (t + 1) + '/12)…');
+        await sleep(Math.min(8000, 800 * (t + 1)));
+      }
+      if (restart) break;
+      if (!ok) throw new Error('Le panel ne répond pas. Réessaie dans une minute.');
+      setBar && setBar(doneBytes + Math.min(file.size, (i + 1) * CHUNK), '');
+    }
+    if (!restart) return;
+  }
+  throw new Error('Envoi interrompu (panel redémarré ?). Réessaie.');
+}
+
+async function uploadFiles(fileList) {
   if (!currentServer) return;
   if (!TOKEN) {
     try { const me = await api('/api/me'); if (me.token) setToken(me.token); } catch (e) {}
   }
-  const form = new FormData();
-  fileList.forEach((f) => form.append('file', f));
-  form.append('path', currentPath);
-
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', apiUrl(F('/upload')));
-  if (TOKEN) xhr.setRequestHeader('Authorization', 'Bearer ' + TOKEN);
-  xhr.withCredentials = true;
   const prog = $('#uploadProgress'), bar = $('#uploadBar');
   prog.classList.add('active');
-  xhr.upload.onprogress = (e) => { if (e.lengthComputable) bar.style.width = Math.round((e.loaded / e.total) * 100) + '%'; };
-  xhr.onload = () => {
+  const totalBytes = fileList.reduce((n, f) => n + f.size, 0) || 1;
+  const setBar = (bytes, msg) => {
+    if (bytes !== null) bar.style.width = Math.min(100, Math.round((bytes / totalBytes) * 100)) + '%';
+    if (msg) toast(msg, true);
+  };
+  let done = 0;
+  try {
+    for (const f of fileList) {
+      await uploadOne(f, done, totalBytes, setBar);
+      done += f.size;
+    }
+    const hasZip = fileList.some((f) => isZip(f.name));
+    toast(hasZip ? 'Envoyé ✔ — utilise « Décompresser » sur le .zip' : 'Fichier(s) envoyé(s) ✔');
+  } catch (e) {
+    toast(e.message || 'Erreur upload', true);
+  } finally {
     prog.classList.remove('active');
     bar.style.width = '0';
-    if (xhr.status === 200) {
-      const hasZip = fileList.some((f) => isZip(f.name));
-      toast(hasZip ? 'Envoyé ✔ — utilise « Décompresser » sur le .zip' : 'Fichier(s) envoyé(s) ✔');
-      loadFiles(currentPath);
-    } else if (xhr.status === 401 && !retried) {
-      api('/api/me').then((me) => { if (me && me.token) setToken(me.token); uploadFiles(fileList, true); })
-        .catch(() => toast('Session expirée — reconnecte-toi.', true));
-    } else {
-      let msg = 'Erreur upload';
-      try { msg = JSON.parse(xhr.responseText).error || msg; } catch (_) {}
-      toast(msg, true);
-    }
-  };
-  xhr.onerror = async () => {
-    prog.classList.remove('active');
-    bar.style.width = '0';
-    // Coupure passagere (panel occupe / redemarre) : on attend qu'il reponde
-    // puis on renvoie automatiquement, jusqu'a 4 fois.
-    if (netTry < 4) {
-      toast('Connexion perdue — nouvelle tentative…', true);
-      for (let i = 0; i < 30; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
-        try { const r = await fetch(apiUrl('/api/ping'), { cache: 'no-store' }); if (r.ok) break; } catch (e) {}
-      }
-      return uploadFiles(fileList, retried, netTry + 1);
-    }
-    toast('Erreur réseau : le panel ne répond pas. Réessaie dans une minute.', true);
-  };
-  xhr.send(form);
+    loadFiles(currentPath);
+  }
 }
 
 /* ---------------- Démarrage ---------------- */

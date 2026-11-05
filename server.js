@@ -112,7 +112,7 @@ const upload = multer({ storage, limits: { fileSize: config.MAX_UPLOAD } });
 /* ---------------- Health / ping (PUBLIC, sans auth) ---------------- */
 // Utilise par le launcher pour detecter que le backend est joignable.
 app.get('/api/ping', (req, res) => {
-  res.json({ ok: true, brand: config.BRAND, uptime: Math.floor(process.uptime()), time: Date.now() });
+  res.json({ ok: true, v: 3, chunks: true, baked: true, brand: config.BRAND, uptime: Math.floor(process.uptime()), time: Date.now() });
 });
 
 app.get('/api/health', (req, res) => {

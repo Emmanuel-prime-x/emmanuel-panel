@@ -4,6 +4,7 @@ servers
 bin
 *.log
 *.zip
+!bots/*.zip
 .git
 .gitignore
 README.md

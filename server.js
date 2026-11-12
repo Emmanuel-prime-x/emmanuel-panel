@@ -9,6 +9,18 @@
  *   - il reessaie de se lier au port si celui-ci est momentanement occupe ;
  *   - il nettoie les processus de bots orphelins au demarrage.
  */
+// Redis (optionnel) : AVANT tout le reste, on restaure la configuration sauvegardee
+// (serveurs, identifiants) dans data/. Synchrone, 10 s maximum, ne plante jamais.
+if (process.env.REDIS_URL) {
+  try {
+    require('child_process').execFileSync(process.execPath, [require('path').join(__dirname, 'scripts', 'redis-restore.js')], {
+      stdio: 'inherit',
+      timeout: 10000
+    });
+  } catch (e) {
+    console.error('[redis] restauration ignoree :', e.message);
+  }
+}
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -112,7 +124,7 @@ const upload = multer({ storage, limits: { fileSize: config.MAX_UPLOAD } });
 /* ---------------- Health / ping (PUBLIC, sans auth) ---------------- */
 // Utilise par le launcher pour detecter que le backend est joignable.
 app.get('/api/ping', (req, res) => {
-  res.json({ ok: true, v: 3, chunks: true, baked: true, brand: config.BRAND, uptime: Math.floor(process.uptime()), time: Date.now() });
+  res.json({ ok: true, v: 3, chunks: true, baked: true, redis: !!process.env.REDIS_URL, brand: config.BRAND, uptime: Math.floor(process.uptime()), time: Date.now() });
 });
 
 app.get('/api/health', (req, res) => {
